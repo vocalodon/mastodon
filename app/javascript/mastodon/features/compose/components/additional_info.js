@@ -33,6 +33,7 @@ export default class AdditionalInfo extends React.PureComponent {
           <li><a href="/web/timelines/tag/ボカロ丼お絵描き部">#ボカロ丼お絵描き部</a></li>
           <li><a href="/web/timelines/tag/曲紹介">#曲紹介</a></li>
           <li><a href="/web/timelines/tag/自貼り">#自貼り</a></li>
+          <li><a href="/web/timelines/tag/vocanew">#vocanew</a></li>
         </ul>
         <h2>管理者</h2>
         <ul className='kakomi'>
