@@ -7,21 +7,24 @@ module UserTrackingConcern
   UPDATE_SIGN_IN_HOURS = 24
 
   included do
-    before_action :set_user_activity, if: %i(user_signed_in? user_needs_sign_in_update?)
+    before_action :set_user_activity
   end
 
   private
 
   def set_user_activity
+    return unless user_needs_sign_in_update?
+
     # Mark as signed-in today
     current_user.update_tracked_fields!(request)
+    ActivityTracker.record('activity:logins', current_user.id)
 
     # Regenerate feed if needed
     regenerate_feed! if user_needs_feed_update?
   end
 
   def user_needs_sign_in_update?
-    current_user.current_sign_in_at.nil? || current_user.current_sign_in_at < UPDATE_SIGN_IN_HOURS.hours.ago
+    user_signed_in? && (current_user.current_sign_in_at.nil? || current_user.current_sign_in_at < UPDATE_SIGN_IN_HOURS.hours.ago)
   end
 
   def user_needs_feed_update?

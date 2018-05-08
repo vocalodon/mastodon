@@ -9,11 +9,14 @@ class ActivityPub::Adapter < ActiveModelSerializers::Adapter::Base
       {
         'manuallyApprovesFollowers' => 'as:manuallyApprovesFollowers',
         'sensitive'                 => 'as:sensitive',
+        'movedTo'                   => 'as:movedTo',
         'Hashtag'                   => 'as:Hashtag',
         'ostatus'                   => 'http://ostatus.org#',
         'atomUri'                   => 'ostatus:atomUri',
         'inReplyToAtomUri'          => 'ostatus:inReplyToAtomUri',
         'conversation'              => 'ostatus:conversation',
+        'toot'                      => 'http://joinmastodon.org/ns#',
+        'Emoji'                     => 'toot:Emoji',
       },
     ],
   }.freeze

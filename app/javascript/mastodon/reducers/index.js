@@ -13,6 +13,7 @@ import settings from './settings';
 import push_notifications from './push_notifications';
 import status_lists from './status_lists';
 import cards from './cards';
+import mutes from './mutes';
 import reports from './reports';
 import contexts from './contexts';
 import compose from './compose';
@@ -20,6 +21,9 @@ import search from './search';
 import media_attachments from './media_attachments';
 import notifications from './notifications';
 import height_cache from './height_cache';
+import custom_emojis from './custom_emojis';
+import lists from './lists';
+import listEditor from './list_editor';
 
 const reducers = {
   timelines,
@@ -36,6 +40,7 @@ const reducers = {
   settings,
   push_notifications,
   cards,
+  mutes,
   reports,
   contexts,
   compose,
@@ -43,6 +48,9 @@ const reducers = {
   media_attachments,
   notifications,
   height_cache,
+  custom_emojis,
+  lists,
+  listEditor,
 };
 
 export default combineReducers(reducers);

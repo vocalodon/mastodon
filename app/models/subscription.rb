@@ -8,11 +8,11 @@
 #  secret                      :string
 #  expires_at                  :datetime
 #  confirmed                   :boolean          default(FALSE), not null
-#  account_id                  :integer          not null
 #  created_at                  :datetime         not null
 #  updated_at                  :datetime         not null
 #  last_successful_delivery_at :datetime
 #  domain                      :string
+#  account_id                  :integer          not null
 #
 
 class Subscription < ApplicationRecord

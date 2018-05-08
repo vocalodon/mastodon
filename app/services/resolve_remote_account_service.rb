@@ -44,7 +44,7 @@ class ResolveRemoteAccountService < BaseService
       if lock.acquired?
         @account = Account.find_remote(@username, @domain)
 
-        if activitypub_ready?
+        if activitypub_ready? || @account&.activitypub?
           handle_activitypub
         else
           handle_ostatus
@@ -74,7 +74,7 @@ class ResolveRemoteAccountService < BaseService
   end
 
   def webfinger_update_due?
-    @account.nil? || @account.last_webfingered_at.nil? || @account.last_webfingered_at <= 1.day.ago
+    @account.nil? || @account.possibly_stale?
   end
 
   def activitypub_ready?
@@ -124,11 +124,11 @@ class ResolveRemoteAccountService < BaseService
   end
 
   def auto_suspend?
-    domain_block && domain_block.suspend?
+    domain_block&.suspend?
   end
 
   def auto_silence?
-    domain_block && domain_block.silence?
+    domain_block&.silence?
   end
 
   def domain_block
@@ -189,7 +189,7 @@ class ResolveRemoteAccountService < BaseService
   def actor_json
     return @actor_json if defined?(@actor_json)
 
-    json        = fetch_resource(actor_url)
+    json        = fetch_resource(actor_url, false)
     @actor_json = supported_context?(json) && json['type'] == 'Person' ? json : nil
   end
 

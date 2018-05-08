@@ -9,7 +9,10 @@ import {
   NOTIFICATIONS_CLEAR,
   NOTIFICATIONS_SCROLL_TOP,
 } from '../actions/notifications';
-import { ACCOUNT_BLOCK_SUCCESS } from '../actions/accounts';
+import {
+  ACCOUNT_BLOCK_SUCCESS,
+  ACCOUNT_MUTE_SUCCESS,
+} from '../actions/accounts';
 import { TIMELINE_DELETE } from '../actions/timelines';
 import { Map as ImmutableMap, List as ImmutableList } from 'immutable';
 
@@ -96,9 +99,10 @@ export default function notifications(state = initialState, action) {
   switch(action.type) {
   case NOTIFICATIONS_REFRESH_REQUEST:
   case NOTIFICATIONS_EXPAND_REQUEST:
+    return state.set('isLoading', true);
   case NOTIFICATIONS_REFRESH_FAIL:
   case NOTIFICATIONS_EXPAND_FAIL:
-    return state.set('isLoading', true);
+    return state.set('isLoading', false);
   case NOTIFICATIONS_SCROLL_TOP:
     return updateTop(state, action.top);
   case NOTIFICATIONS_UPDATE:
@@ -108,6 +112,7 @@ export default function notifications(state = initialState, action) {
   case NOTIFICATIONS_EXPAND_SUCCESS:
     return appendNormalizedNotifications(state, action.notifications, action.next);
   case ACCOUNT_BLOCK_SUCCESS:
+  case ACCOUNT_MUTE_SUCCESS:
     return filterNotifications(state, action.relationship);
   case NOTIFICATIONS_CLEAR:
     return state.set('items', ImmutableList()).set('next', null);

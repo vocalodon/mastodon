@@ -1,6 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import Link from 'react-router-dom/Link';
+import { Link } from 'react-router-dom';
 
 const ColumnLink = ({ icon, text, to, href, method }) => {
   if (href) {
@@ -26,7 +26,6 @@ ColumnLink.propTypes = {
   to: PropTypes.string,
   href: PropTypes.string,
   method: PropTypes.string,
-  hideOnMobile: PropTypes.bool,
 };
 
 export default ColumnLink;

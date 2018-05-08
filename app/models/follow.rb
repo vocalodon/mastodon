@@ -4,10 +4,11 @@
 # Table name: follows
 #
 #  id                :integer          not null, primary key
-#  account_id        :integer          not null
-#  target_account_id :integer          not null
 #  created_at        :datetime         not null
 #  updated_at        :datetime         not null
+#  account_id        :integer          not null
+#  target_account_id :integer          not null
+#  show_reblogs      :boolean          default(TRUE), not null
 #
 
 class Follow < ApplicationRecord

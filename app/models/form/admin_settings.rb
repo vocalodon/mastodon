@@ -24,8 +24,16 @@ class Form::AdminSettings
     :open_deletion=,
     :timeline_preview,
     :timeline_preview=,
+    :show_staff_badge,
+    :show_staff_badge=,
     :bootstrap_timeline_accounts,
     :bootstrap_timeline_accounts=,
+    :min_invite_role,
+    :min_invite_role=,
+    :activity_api_enabled,
+    :activity_api_enabled=,
+    :peers_api_enabled,
+    :peers_api_enabled=,
     to: Setting
   )
 end

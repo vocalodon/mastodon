@@ -33,6 +33,8 @@ class ActivityPub::TagManager
     when :note, :comment, :activity
       return activity_account_status_url(target.account, target) if target.reblog?
       account_status_url(target.account, target)
+    when :emoji
+      emoji_url(target)
     end
   end
 
@@ -64,6 +66,8 @@ class ActivityPub::TagManager
   # Direct ones don't have a secondary audience
   def cc(status)
     cc = []
+
+    cc << uri_for(status.reblog.account) if status.reblog?
 
     case status.visibility
     when 'public'
@@ -98,8 +102,8 @@ class ActivityPub::TagManager
       else
         StatusFinder.new(uri).status
       end
-    elsif ::TagManager.instance.local_id?(uri)
-      klass.find_by(id: ::TagManager.instance.unique_tag_to_local_id(uri, klass.to_s))
+    elsif OStatus::TagManager.instance.local_id?(uri)
+      klass.find_by(id: OStatus::TagManager.instance.unique_tag_to_local_id(uri, klass.to_s))
     else
       klass.find_by(uri: uri.split('#').first)
     end

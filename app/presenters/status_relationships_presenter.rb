@@ -3,7 +3,7 @@
 class StatusRelationshipsPresenter
   attr_reader :reblogs_map, :favourites_map, :mutes_map, :pins_map
 
-  def initialize(statuses, current_account_id = nil, options = {})
+  def initialize(statuses, current_account_id = nil, **options)
     if current_account_id.nil?
       @reblogs_map    = {}
       @favourites_map = {}
@@ -11,7 +11,7 @@ class StatusRelationshipsPresenter
       @pins_map       = {}
     else
       statuses            = statuses.compact
-      status_ids          = statuses.flat_map { |s| [s.id, s.reblog_of_id] }.uniq
+      status_ids          = statuses.flat_map { |s| [s.id, s.reblog_of_id] }.uniq.compact
       conversation_ids    = statuses.map(&:conversation_id).compact.uniq
       pinnable_status_ids = statuses.map(&:proper).select { |s| s.account_id == current_account_id && %w(public unlisted).include?(s.visibility) }.map(&:id)
 

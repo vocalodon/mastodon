@@ -6,7 +6,8 @@ fr:
         name: Nom
         redirect_uri: L’URL de redirection
         scope: Portée
-        website: Site Web de l'application
+        scopes: Étendue
+        website: Site web de l'application
     errors:
       models:
         doorkeeper/application:
@@ -35,9 +36,13 @@ fr:
         redirect_uri: Utiliser une ligne par URL
         scopes: Séparer les portées avec des espaces. Laisser vide pour utiliser les portées par défaut.
       index:
+        application: Application
         callback_url: URL de retour d’appel
+        delete: Effacer
         name: Nom
         new: Nouvelle application
+        scopes: Scopes
+        show: Voir
         title: Vos applications
       new:
         title: Nouvelle application
@@ -59,7 +64,7 @@ fr:
         prompt: Autoriser %{client_name} à utiliser votre compte ?
         title: Autorisation requise
       show:
-        title: Copy this authorization code and paste it to the application.
+        title: Copiez ce code d'autorisation et collez-le dans l'application.
     authorized_applications:
       buttons:
         revoke: Annuler
@@ -112,4 +117,4 @@ fr:
     scopes:
       follow: s’abonner, se désabonner, bloquer et débloquer des comptes
       read: lire les données de votre compte
-      write: poster en tant que vous
+      write: poster en votre nom

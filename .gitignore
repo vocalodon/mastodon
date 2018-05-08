@@ -47,6 +47,9 @@ redis
 *~
 *.swp
 
+# Ignore backup files
+*.bak
+
 # Ignore npm debug log
 npm-debug.log
 

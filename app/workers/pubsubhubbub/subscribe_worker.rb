@@ -20,7 +20,7 @@ class Pubsubhubbub::SubscribeWorker
 
   sidekiq_retries_exhausted do |msg, _e|
     account = Account.find(msg['args'].first)
-    logger.error "PuSH subscription attempts for #{account.acct} exhausted. Unsubscribing"
+    Sidekiq.logger.error "PuSH subscription attempts for #{account.acct} exhausted. Unsubscribing"
     ::UnsubscribeService.new.call(account)
   end
 
@@ -29,6 +29,6 @@ class Pubsubhubbub::SubscribeWorker
     logger.debug "PuSH re-subscribing to #{account.acct}"
     ::SubscribeService.new.call(account)
   rescue => e
-    raise e.class, "Subscribe failed for #{account&.acct}: #{e.message}"
+    raise e.class, "Subscribe failed for #{account&.acct}: #{e.message}", e.backtrace[0]
   end
 end

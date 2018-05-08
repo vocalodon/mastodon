@@ -10,22 +10,27 @@ class ProcessMentionsService < BaseService
   def call(status)
     return unless status.local?
 
-    status.text.scan(Account::MENTION_RE).each do |match|
-      username, domain  = match.first.split('@')
+    status.text = status.text.gsub(Account::MENTION_RE) do |match|
+      username, domain  = $1.split('@')
       mentioned_account = Account.find_remote(username, domain)
 
-      if mentioned_account.nil? && !domain.nil?
+      if mention_undeliverable?(status, mentioned_account)
         begin
-          mentioned_account = follow_remote_account_service.call(match.first.to_s)
+          mentioned_account = resolve_remote_account_service.call($1)
         rescue Goldfinger::Error, HTTP::Error
           mentioned_account = nil
         end
       end
 
-      next if mentioned_account.nil?
+      mentioned_account ||= Account.find_remote(username, domain)
+
+      next match if mention_undeliverable?(status, mentioned_account)
 
       mentioned_account.mentions.where(status: status).first_or_create(status: status)
+      "@#{mentioned_account.acct}"
     end
+
+    status.save!
 
     status.mentions.includes(:account).each do |mention|
       create_notification(status, mention)
@@ -34,12 +39,16 @@ class ProcessMentionsService < BaseService
 
   private
 
+  def mention_undeliverable?(status, mentioned_account)
+    mentioned_account.nil? || (!mentioned_account.local? && mentioned_account.ostatus? && status.stream_entry.hidden?)
+  end
+
   def create_notification(status, mention)
     mentioned_account = mention.account
 
     if mentioned_account.local?
       NotifyService.new.call(mentioned_account, mention)
-    elsif mentioned_account.ostatus? && (Rails.configuration.x.use_ostatus_privacy || !status.stream_entry.hidden?)
+    elsif mentioned_account.ostatus? && !status.stream_entry.hidden?
       NotificationWorker.perform_async(stream_entry_to_xml(status.stream_entry), status.account_id, mentioned_account.id)
     elsif mentioned_account.activitypub?
       ActivityPub::DeliveryWorker.perform_async(build_json(mention.status), mention.status.account_id, mentioned_account.inbox_url)
@@ -54,7 +63,7 @@ class ProcessMentionsService < BaseService
     ).as_json).sign!(status.account))
   end
 
-  def follow_remote_account_service
-    @follow_remote_account_service ||= ResolveRemoteAccountService.new
+  def resolve_remote_account_service
+    ResolveRemoteAccountService.new
   end
 end

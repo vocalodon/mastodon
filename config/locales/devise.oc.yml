@@ -9,7 +9,7 @@ oc:
       already_authenticated: Sètz ja connectat.
       inactive: Vòstre compte es pas encara activat.
       invalid: Corrièl o senhal invalid.
-      last_attempt: Vos demòra un ensag abans que vòstre compte siasgue blocat.
+      last_attempt: Vos demòra un ensag abans que vòstre compte siasque blocat.
       locked: Vòstre compte es blocat.
       not_found_in_database: Corrièl o senhal invalid.
       timeout: Vòstra session s’a acabat. Mercés de vos tornar connectar per contunhar.
@@ -17,13 +17,17 @@ oc:
       unconfirmed: Vos cal confirmar vòstra adreça de corrièl abans de contunhar.
     mailer:
       confirmation_instructions:
-        subject: "Mercés de confirmar vòstra inscripcion sus %{instance}"
+        subject: Mercés de confirmar vòstra inscripcion sus %{instance}
+      email_changed:
+        subject: 'Mastodon : corrièl cambiat'
       password_change:
-        subject: 'Mastodon : senhal cambiat'
+        subject: Mastodon : senhal cambiat
+      reconfirmation_instructions:
+        subject: 'Mastodon : Confirmatz l’adreça per %{instance}'
       reset_password_instructions:
-        subject: 'Mastodon : instruccions per reïnicializar lo senhal'
+        subject: Mastodon : instruccions per reïnicializar lo senhal
       unlock_instructions:
-        subject: 'Mastodon : instuccions de desblocatge'
+        subject: Mastodon : instuccions de desblocatge
     omniauth_callbacks:
       failure: Fracàs al moment de vos autentificar de %{kind} perque "%{reason}".
       success: Sètz ben autentificat dempuèi lo compte %{kind}.

@@ -41,15 +41,18 @@ class FetchAtomService < BaseService
     return nil if @response.code != 200
 
     if @response.mime_type == 'application/atom+xml'
-      [@url, @response.to_s, :ostatus]
+      [@url, { prefetched_body: @response.to_s }, :ostatus]
     elsif ['application/activity+json', 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"'].include?(@response.mime_type)
-      if supported_activity?(@response.to_s)
-        [@url, @response.to_s, :activitypub]
+      json = body_to_json(@response.to_s)
+      if supported_context?(json) && json['type'] == 'Person' && json['inbox'].present?
+        [json['id'], { prefetched_body: @response.to_s, id: true }, :activitypub]
+      elsif supported_context?(json) && json['type'] == 'Note'
+        [json['id'], { prefetched_body: @response.to_s, id: true }, :activitypub]
       else
         @unsupported_activity = true
         nil
       end
-    elsif @response['Link'] && !terminal
+    elsif @response['Link'] && !terminal && link_header.find_link(%w(rel alternate))
       process_headers
     elsif @response.mime_type == 'text/html' && !terminal
       process_html
@@ -69,8 +72,6 @@ class FetchAtomService < BaseService
   end
 
   def process_headers
-    link_header = LinkHeader.parse(@response['Link'].is_a?(Array) ? @response['Link'].first : @response['Link'])
-
     json_link = link_header.find_link(%w(rel alternate), %w(type application/activity+json)) || link_header.find_link(%w(rel alternate), ['type', 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"'])
     atom_link = link_header.find_link(%w(rel alternate), %w(type application/atom+xml))
 
@@ -80,9 +81,7 @@ class FetchAtomService < BaseService
     result
   end
 
-  def supported_activity?(body)
-    json = body_to_json(body)
-    return false unless supported_context?(json)
-    json['type'] == 'Person' ? json['inbox'].present? : true
+  def link_header
+    @link_header ||= LinkHeader.parse(@response['Link'].is_a?(Array) ? @response['Link'].first : @response['Link'])
   end
 end
