@@ -61,4 +61,11 @@ module Extractor
   def extract_cashtags_with_indices(_text)
     [] # always returns empty array
   end
+
+end
+
+module Extractor
+  class << self
+    prepend Vocalodon::ExtractorExtension
+  end
 end
