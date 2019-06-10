@@ -117,7 +117,9 @@ class Formatter
     end
 
     rewrite(html.dup, entities) do |entity|
-      if entity[:url]
+      if entity[:niconico_link]
+        link_to_niconico(entity)
+      elsif entity[:url]
         link_to_url(entity, options)
       elsif entity[:hashtag]
         link_to_hashtag(entity)
@@ -278,6 +280,19 @@ class Formatter
 
   def link_to_hashtag(entity)
     hashtag_html(entity[:hashtag])
+  end
+
+  #from friends.nico
+  def link_to_niconico(entity)
+    nl = entity[:niconico_link]
+    params = {data: {}}.tap do |x|
+      x[:href] = nl.url
+      x[:rel] = 'nofollow noopener'
+      x[:target] = '_blank'
+      x[:data][:nico_video_id] = nl.text if nl.video?
+    end
+
+    tag.a(tag.span(nl.text), params)
   end
 
   def link_html(url)
