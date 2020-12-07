@@ -15,7 +15,7 @@ gem 'pghero', '~> 1.7'
 gem 'dotenv-rails', '~> 2.2'
 
 gem 'aws-sdk', '~> 2.9'
-gem 'fog-openstack', '~> 0.1'
+gem 'fog-openstack', '~> 1.0'
 gem 'paperclip', '~> 5.1'
 gem 'paperclip-av-transcoder', '~> 0.6'
 
