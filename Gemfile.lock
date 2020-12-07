@@ -154,7 +154,7 @@ GEM
     erubis (2.7.0)
     et-orbi (1.0.5)
       tzinfo
-    excon (0.58.0)
+    excon (0.78.1)
     execjs (2.7.0)
     fabrication (2.16.2)
     faker (1.7.3)
