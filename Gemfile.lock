@@ -288,7 +288,7 @@ GEM
       mini_portile2 (~> 2.2.0)
     nokogumbo (1.4.13)
       nokogiri
-    oj (3.3.4)
+    oj (3.10.8)
     openssl (2.0.4)
     orm_adapter (0.5.0)
     ostatus2 (2.0.1)
@@ -572,7 +572,7 @@ DEPENDENCIES
   microformats (~> 4.0)
   mime-types (~> 3.1)
   nokogiri (~> 1.7)
-  oj (~> 3.0)
+  oj (~> 3.10)
   ostatus2 (~> 2.0)
   ox (~> 2.5)
   paperclip (~> 5.1)
