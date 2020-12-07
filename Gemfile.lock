@@ -489,7 +489,7 @@ GEM
     tilt (2.0.8)
     twitter-text (1.14.7)
       unf (~> 0.1.0)
-    tzinfo (1.2.3)
+    tzinfo (1.2.8)
       thread_safe (~> 0.1)
     tzinfo-data (1.2017.2)
       tzinfo (>= 1.0.0)
