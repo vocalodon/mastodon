@@ -130,7 +130,7 @@
     "mocha": "^3.4.1",
     "react-intl-translations-manager": "^5.0.0",
     "react-test-renderer": "^15.6.1",
-    "sinon": "^2.3.7",
+    "sinon": "^9.2.1",
     "webpack-dev-server": "^2.6.1",
     "yargs": "^8.0.2"
   },
