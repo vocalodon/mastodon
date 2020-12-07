@@ -74,7 +74,7 @@ GEM
       debug_inspector (>= 0.0.1)
     bootsnap (1.1.2)
       msgpack (~> 1.0)
-    brakeman (3.7.2)
+    brakeman (4.10.0)
     browser (2.4.0)
     builder (3.2.3)
     bullet (5.5.1)
@@ -531,7 +531,7 @@ DEPENDENCIES
   better_errors (~> 2.1)
   binding_of_caller (~> 0.7)
   bootsnap
-  brakeman (~> 3.6)
+  brakeman (~> 4.10)
   browser
   bullet (~> 5.5)
   bundler-audit (~> 0.5)
