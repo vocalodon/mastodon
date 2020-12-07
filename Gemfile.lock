@@ -52,7 +52,7 @@ GEM
       activerecord (>= 3.2, < 6.0)
       rake (>= 10.4, < 13.0)
     arel (8.0.0)
-    ast (2.3.0)
+    ast (2.4.1)
     attr_encrypted (3.0.3)
       encryptor (~> 3.0.0)
     av (0.9.0)
