@@ -25,7 +25,7 @@
     "babel-loader": "^7.1.1",
     "babel-plugin-lodash": "^3.2.11",
     "babel-plugin-preval": "^1.3.2",
-    "babel-plugin-react-intl": "^2.3.1",
+    "babel-plugin-react-intl": "^8.2.21",
     "babel-plugin-react-transform": "^2.0.2",
     "babel-plugin-syntax-dynamic-import": "^6.18.0",
     "babel-plugin-transform-class-properties": "^6.24.1",
