@@ -5253,11 +5253,10 @@ react-addons-perf@^15.4.2:
     fbjs "^0.8.4"
     object-assign "^4.1.0"
 
-react-addons-shallow-compare@>=0.14.0, react-addons-shallow-compare@^15.6.0:
-  version "15.6.0"
-  resolved "https://registry.yarnpkg.com/react-addons-shallow-compare/-/react-addons-shallow-compare-15.6.0.tgz#b7a4e5ff9f2704c20cf686dd8a05dd08b26de252"
+react-addons-shallow-compare@>=0.14.0, react-addons-shallow-compare@^15.6.3:
+  version "15.6.3"
+  resolved "https://registry.yarnpkg.com/react-addons-shallow-compare/-/react-addons-shallow-compare-15.6.3.tgz#28a94b0dfee71530852c66a69053d59a1baf04cb"
   dependencies:
-    fbjs "^0.8.4"
     object-assign "^4.1.0"
 
 react-dom@^15.6.1:
