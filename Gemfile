@@ -66,7 +66,7 @@ gem 'simple_form', '~> 3.4'
 gem 'sprockets-rails', '~> 3.2', require: 'sprockets/railtie'
 gem 'statsd-instrument', '~> 2.1'
 gem 'twitter-text', '~> 1.14'
-gem 'tzinfo-data', '~> 1.2017'
+gem 'tzinfo-data', '~> 1.2020'
 gem 'webpacker', '~> 2.0'
 gem 'webpush'
 
