@@ -266,8 +266,8 @@ GEM
       nokogiri (>= 1.5.9)
     mail (2.6.6)
       mime-types (>= 1.16, < 4)
-    mario-redis-lock (1.2.0)
-      redis (~> 3, >= 3.0.5)
+    mario-redis-lock (1.2.1)
+      redis (>= 3.0.5)
     method_source (0.8.2)
     microformats (4.0.7)
       json
