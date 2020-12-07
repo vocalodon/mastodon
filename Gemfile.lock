@@ -117,7 +117,7 @@ GEM
       climate_control (>= 0.0.3, < 1.0)
     coderay (1.1.1)
     colorize (0.8.1)
-    concurrent-ruby (1.0.5)
+    concurrent-ruby (1.1.7)
     connection_pool (2.2.1)
     crack (0.4.3)
       safe_yaml (~> 1.0.0)
@@ -372,7 +372,7 @@ GEM
     rainbow (2.2.2)
       rake
     rake (12.0.0)
-    rdf (2.2.8)
+    rdf (2.2.12)
       hamster (~> 3.0)
       link_header (~> 0.0, >= 0.0.8)
     rdf-normalize (0.3.2)
