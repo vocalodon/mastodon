@@ -314,7 +314,7 @@ GEM
     pg (0.21.0)
     pghero (1.7.0)
       activerecord
-    pkg-config (1.2.4)
+    pkg-config (1.4.4)
     powerpack (0.1.1)
     pry (0.10.4)
       coderay (~> 1.1.0)
@@ -580,7 +580,7 @@ DEPENDENCIES
   parallel_tests (~> 2.14)
   pg (~> 0.20)
   pghero (~> 1.7)
-  pkg-config (~> 1.2)
+  pkg-config (~> 1.4)
   pry-rails (~> 0.3)
   puma (~> 3.10)
   pundit (~> 1.1)
