@@ -82,7 +82,7 @@ group :development, :test do
 end
 
 group :test do
-  gem 'capybara', '~> 2.14'
+  gem 'capybara', '~> 3.15'
   gem 'climate_control', '~> 0.2'
   gem 'faker', '~> 1.7'
   gem 'microformats', '~> 4.0'
