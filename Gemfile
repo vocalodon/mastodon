@@ -10,7 +10,7 @@ gem 'rails', '~> 5.1.4'
 gem 'uglifier', '~> 3.2'
 
 gem 'hamlit-rails', '~> 0.2'
-gem 'pg', '~> 0.20'
+gem 'pg', '~> 1.2'
 gem 'pghero', '~> 1.7'
 gem 'dotenv-rails', '~> 2.2'
 
