@@ -29,7 +29,7 @@ GEM
       activemodel (>= 4.1, < 6)
       case_transform (>= 0.2)
       jsonapi-renderer (>= 0.1.1.beta1, < 0.2)
-    active_record_query_trace (1.5.4)
+    active_record_query_trace (1.7)
     activejob (5.1.4)
       activesupport (= 5.1.4)
       globalid (>= 0.3.6)
@@ -524,7 +524,7 @@ PLATFORMS
 
 DEPENDENCIES
   active_model_serializers (~> 0.10)
-  active_record_query_trace (~> 1.5)
+  active_record_query_trace (~> 1.7)
   addressable (~> 2.5)
   annotate (~> 2.7)
   aws-sdk (~> 2.9)
