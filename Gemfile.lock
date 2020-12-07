@@ -487,7 +487,8 @@ GEM
     thread (0.2.2)
     thread_safe (0.3.6)
     tilt (2.0.8)
-    twitter-text (1.14.7)
+    twitter-text (3.1.0)
+      idn-ruby
       unf (~> 0.1.0)
     tzinfo (1.2.3)
       thread_safe (~> 0.1)
@@ -497,7 +498,7 @@ GEM
       execjs (>= 0.3.0, < 3)
     unf (0.1.4)
       unf_ext
-    unf_ext (0.0.7.4)
+    unf_ext (0.0.7.7)
     unicode-display_width (1.3.0)
     uniform_notifier (1.10.0)
     warden (1.2.7)
@@ -612,7 +613,7 @@ DEPENDENCIES
   simplecov (~> 0.14)
   sprockets-rails (~> 3.2)
   statsd-instrument (~> 2.1)
-  twitter-text (~> 1.14)
+  twitter-text (~> 3.1)
   tzinfo-data (~> 1.2017)
   uglifier (~> 3.2)
   webmock (~> 3.0)
