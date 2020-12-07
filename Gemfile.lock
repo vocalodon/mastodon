@@ -311,7 +311,7 @@ GEM
       parallel
     parser (2.4.0.0)
       ast (~> 2.2)
-    pg (0.21.0)
+    pg (1.2.3)
     pghero (1.7.0)
       activerecord
     pkg-config (1.2.4)
@@ -578,7 +578,7 @@ DEPENDENCIES
   paperclip (~> 5.1)
   paperclip-av-transcoder (~> 0.6)
   parallel_tests (~> 2.14)
-  pg (~> 0.20)
+  pg (~> 1.2)
   pghero (~> 1.7)
   pkg-config (~> 1.2)
   pry-rails (~> 0.3)
