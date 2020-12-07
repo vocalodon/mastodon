@@ -16,7 +16,7 @@ gem 'dotenv-rails', '~> 2.2'
 
 gem 'aws-sdk', '~> 2.9'
 gem 'fog-openstack', '~> 0.1'
-gem 'paperclip', '~> 5.1'
+gem 'paperclip', '~> 5.2'
 gem 'paperclip-av-transcoder', '~> 0.6'
 
 gem 'active_model_serializers', '~> 0.10'
