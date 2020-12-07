@@ -70,7 +70,7 @@
     "object-assign": "^4.1.1",
     "object-fit-images": "^3.2.3",
     "offline-plugin": "^4.8.3",
-    "path-complete-extname": "^0.1.0",
+    "path-complete-extname": "^1.0.0",
     "pg": "^6.4.0",
     "postcss-loader": "^2.0.6",
     "postcss-object-fit-images": "^1.1.2",
