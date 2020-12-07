@@ -125,7 +125,7 @@
     "enzyme": "^2.9.1",
     "eslint": "^3.19.0",
     "eslint-plugin-jsx-a11y": "^4.0.0",
-    "eslint-plugin-react": "^6.10.3",
+    "eslint-plugin-react": "^7.21.5",
     "jsdom": "^11.1.0",
     "mocha": "^3.4.1",
     "react-intl-translations-manager": "^5.0.0",
