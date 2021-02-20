@@ -49,11 +49,8 @@ class Webfinger
         res.body_with_limit
       elsif res.code == 404 && use_fallback
         body_from_host_meta
-<<<<<<< HEAD
-=======
       elsif res.code == 410
         raise Webfinger::GoneError, "#{@uri} is gone from the server"
->>>>>>> tags/v3.3.0
       else
         raise Webfinger::Error, "Request for #{@uri} returned HTTP #{res.code}"
       end
