@@ -149,7 +149,7 @@
     "redux-thunk": "^2.2.0",
     "rellax": "^1.12.1",
     "requestidlecallback": "^0.3.0",
-    "reselect": "^4.0.0",
+    "reselect": "^4.1.1",
     "rimraf": "^3.0.2",
     "sass": "^1.26.8",
     "sass-loader": "^8.0.2",
