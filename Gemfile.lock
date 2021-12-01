@@ -634,7 +634,8 @@ GEM
       tty-screen (~> 0.8)
       wisper (~> 2.0)
     tty-screen (0.8.1)
-    twitter-text (1.14.7)
+    twitter-text (3.1.0)
+      idn-ruby
       unf (~> 0.1.0)
     tzinfo (1.2.7)
       thread_safe (~> 0.1)
@@ -642,7 +643,7 @@ GEM
       tzinfo (>= 1.0.0)
     unf (0.1.4)
       unf_ext
-    unf_ext (0.0.7.7)
+    unf_ext (0.0.8)
     unicode-display_width (1.7.0)
     uniform_notifier (1.13.0)
     warden (1.2.9)
@@ -803,7 +804,7 @@ DEPENDENCIES
   strong_migrations (~> 0.7)
   thor (~> 1.0)
   tty-prompt (~> 0.22)
-  twitter-text (~> 1.14)
+  twitter-text (~> 3.1)
   tzinfo-data (~> 1.2020)
   webauthn (~> 3.0.0.alpha1)
   webmock (~> 3.10)
