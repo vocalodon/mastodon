@@ -17,7 +17,9 @@ class Auth::ConfirmationsController < Devise::ConfirmationsController
   private
 
   def require_unconfirmed!
-    redirect_to edit_user_registration_path if user_signed_in? && current_user.confirmed? && current_user.unconfirmed_email.blank?
+    if user_signed_in? && current_user.confirmed? && current_user.unconfirmed_email.blank?
+      redirect_to(current_user.approved? ? root_path : edit_user_registration_path)
+    end
   end
 
   def set_body_classes
@@ -38,7 +40,7 @@ class Auth::ConfirmationsController < Devise::ConfirmationsController
 
   def after_confirmation_path_for(_resource_name, user)
     if user.created_by_application && truthy_param?(:redirect_to_app)
-      user.created_by_application.redirect_uri
+      user.created_by_application.confirmation_redirect_uri
     else
       super
     end
