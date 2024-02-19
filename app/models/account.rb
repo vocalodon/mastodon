@@ -40,13 +40,15 @@
 #  also_known_as                 :string           is an Array
 #  silenced_at                   :datetime
 #  suspended_at                  :datetime
-#  trust_level                   :integer
 #  hide_collections              :boolean
 #  avatar_storage_schema_version :integer
 #  header_storage_schema_version :integer
 #  devices_url                   :string
 #  suspension_origin             :integer
 #  sensitized_at                 :datetime
+#  trendable                     :boolean
+#  reviewed_at                   :datetime
+#  requested_review_at           :datetime
 #
 
 class Account < ApplicationRecord
@@ -56,28 +58,24 @@ class Account < ApplicationRecord
     remote_url
     salmon_url
     hub_url
+    trust_level
   )
 
-  USERNAME_RE   = /[a-z0-9_]+([a-z0-9_\.-]+[a-z0-9_]+)?/i
-  MENTION_RE    = /(?<=^|[^\/[:word:]])@((#{USERNAME_RE})(?:@[[:word:]\.\-]+[[:word:]]+)?)/i
-  URL_PREFIX_RE = /\Ahttp(s?):\/\/[^\/]+/
+  USERNAME_RE   = /[a-z0-9_]+([a-z0-9_.-]+[a-z0-9_]+)?/i
+  MENTION_RE    = %r{(?<![=/[:word:]])@((#{USERNAME_RE})(?:@[[:word:].-]+[[:word:]]+)?)}i
+  URL_PREFIX_RE = %r{\Ahttp(s?)://[^/]+}
 
+  include Attachmentable
   include AccountAssociations
   include AccountAvatar
   include AccountFinderConcern
   include AccountHeader
   include AccountInteractions
-  include Attachmentable
   include Paginable
   include AccountCounters
   include DomainNormalizable
   include DomainMaterializable
   include AccountMerging
-
-  TRUST_LEVELS = {
-    untrusted: 0,
-    trusted: 1,
-  }.freeze
 
   enum protocol: [:ostatus, :activitypub]
   enum suspension_origin: [:local, :remote], _prefix: true
@@ -108,14 +106,15 @@ class Account < ApplicationRecord
   scope :bots, -> { where(actor_type: %w(Application Service)) }
   scope :groups, -> { where(actor_type: 'Group') }
   scope :alphabetic, -> { order(domain: :asc, username: :asc) }
-  scope :matches_username, ->(value) { where(arel_table[:username].matches("#{value}%")) }
+  scope :matches_username, ->(value) { where('lower((username)::text) LIKE lower(?)', "#{value}%") }
   scope :matches_display_name, ->(value) { where(arel_table[:display_name].matches("#{value}%")) }
   scope :matches_domain, ->(value) { where(arel_table[:domain].matches("%#{value}%")) }
-  scope :searchable, -> { without_suspended.where(moved_to_account_id: nil) }
+  scope :without_unapproved, -> { left_outer_joins(:user).remote.or(left_outer_joins(:user).merge(User.approved.confirmed)) }
+  scope :searchable, -> { without_unapproved.without_suspended.where(moved_to_account_id: nil) }
   scope :discoverable, -> { searchable.without_silenced.where(discoverable: true).left_outer_joins(:account_stat) }
   scope :followable_by, ->(account) { joins(arel_table.join(Follow.arel_table, Arel::Nodes::OuterJoin).on(arel_table[:id].eq(Follow.arel_table[:target_account_id]).and(Follow.arel_table[:account_id].eq(account.id))).join_sources).where(Follow.arel_table[:id].eq(nil)).joins(arel_table.join(FollowRequest.arel_table, Arel::Nodes::OuterJoin).on(arel_table[:id].eq(FollowRequest.arel_table[:target_account_id]).and(FollowRequest.arel_table[:account_id].eq(account.id))).join_sources).where(FollowRequest.arel_table[:id].eq(nil)) }
-  scope :by_recent_status, -> { order(Arel.sql('(case when account_stats.last_status_at is null then 1 else 0 end) asc, account_stats.last_status_at desc, accounts.id desc')) }
-  scope :by_recent_sign_in, -> { order(Arel.sql('(case when users.current_sign_in_at is null then 1 else 0 end) asc, users.current_sign_in_at desc, accounts.id desc')) }
+  scope :by_recent_status, -> { includes(:account_stat).merge(AccountStat.order('last_status_at DESC NULLS LAST')).references(:account_stat) }
+  scope :by_recent_sign_in, -> { order(Arel.sql('users.current_sign_in_at DESC NULLS LAST')) }
   scope :popular, -> { order('account_stats.followers_count desc') }
   scope :by_domain_and_subdomains, ->(domain) { where(domain: domain).or(where(arel_table[:domain].matches('%.' + domain))) }
   scope :not_excluded_by_account, ->(account) { where.not(id: account.excluded_from_timeline_account_ids) }
@@ -123,19 +122,20 @@ class Account < ApplicationRecord
 
   delegate :email,
            :unconfirmed_email,
-           :current_sign_in_ip,
            :current_sign_in_at,
+           :created_at,
+           :sign_up_ip,
            :confirmed?,
            :approved?,
            :pending?,
            :disabled?,
+           :unconfirmed?,
            :unconfirmed_or_pending?,
            :role,
            :admin?,
            :moderator?,
            :staff?,
            :locale,
-           :hides_network?,
            :shows_application?,
            to: :user,
            prefix: true,
@@ -143,7 +143,7 @@ class Account < ApplicationRecord
 
   delegate :chosen_languages, to: :user, prefix: false, allow_nil: true
 
-  update_index('accounts#account', :self)
+  update_index('accounts', :self)
 
   def local?
     domain.nil?
@@ -194,15 +194,11 @@ class Account < ApplicationRecord
   end
 
   def searchable?
-    !(suspended? || moved?)
+    !(suspended? || moved?) && (!local? || (approved? && confirmed?))
   end
 
   def possibly_stale?
     last_webfingered_at.nil? || last_webfingered_at <= 1.day.ago
-  end
-
-  def trust_level
-    self[:trust_level] || 0
   end
 
   def refresh!
@@ -267,6 +263,10 @@ class Account < ApplicationRecord
 
   def sign?
     true
+  end
+
+  def previous_strikes_count
+    strikes.where(overruled_at: nil).count
   end
 
   def keypair
@@ -350,11 +350,11 @@ class Account < ApplicationRecord
   end
 
   def hides_followers?
-    hide_collections? || user_hides_network?
+    hide_collections?
   end
 
   def hides_following?
-    hide_collections? || user_hides_network?
+    hide_collections?
   end
 
   def object_type
@@ -381,6 +381,22 @@ class Account < ApplicationRecord
     return 'local' if local?
 
     @synchronization_uri_prefix ||= "#{uri[URL_PREFIX_RE]}/"
+  end
+
+  def requires_review?
+    reviewed_at.nil?
+  end
+
+  def reviewed?
+    reviewed_at.present?
+  end
+
+  def requested_review?
+    requested_review_at.present?
+  end
+
+  def requires_review_notification?
+    requires_review? && !requested_review?
   end
 
   class Field < ActiveModelSerializers::Model
@@ -446,9 +462,11 @@ class Account < ApplicationRecord
           accounts.*,
           ts_rank_cd(#{TEXTSEARCH}, to_tsquery('simple', :tsquery), 32) AS rank
         FROM accounts
+        LEFT JOIN users ON accounts.id = users.account_id
         WHERE to_tsquery('simple', :tsquery) @@ #{TEXTSEARCH}
           AND accounts.suspended_at IS NULL
           AND accounts.moved_to_account_id IS NULL
+          AND (accounts.domain IS NOT NULL OR (users.approved = TRUE AND users.confirmed_at IS NOT NULL))
         ORDER BY rank DESC
         LIMIT :limit OFFSET :offset
       SQL
@@ -524,9 +542,11 @@ class Account < ApplicationRecord
             (count(f.id) + 1) * ts_rank_cd(#{TEXTSEARCH}, to_tsquery('simple', :tsquery), 32) AS rank
           FROM accounts
           LEFT OUTER JOIN follows AS f ON (accounts.id = f.account_id AND f.target_account_id = :id) OR (accounts.id = f.target_account_id AND f.account_id = :id)
+          LEFT JOIN users ON accounts.id = users.account_id
           WHERE to_tsquery('simple', :tsquery) @@ #{TEXTSEARCH}
             AND accounts.suspended_at IS NULL
             AND accounts.moved_to_account_id IS NULL
+            AND (accounts.domain IS NOT NULL OR (users.approved = TRUE AND users.confirmed_at IS NOT NULL))
           GROUP BY accounts.id
           ORDER BY rank DESC
           LIMIT :limit OFFSET :offset
@@ -543,6 +563,12 @@ class Account < ApplicationRecord
   before_validation :prepare_contents, if: :local?
   before_validation :prepare_username, on: :create
   before_destroy :clean_feed_manager
+
+  def ensure_keys!
+    return unless local? && private_key.blank? && public_key.blank?
+    generate_keys
+    save!
+  end
 
   private
 

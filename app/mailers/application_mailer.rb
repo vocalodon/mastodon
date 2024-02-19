@@ -5,6 +5,9 @@ class ApplicationMailer < ActionMailer::Base
 
   helper :application
   helper :instance
+  helper :formatting
+
+  after_action :set_autoreply_headers!
 
   protected
 
@@ -12,5 +15,11 @@ class ApplicationMailer < ActionMailer::Base
     I18n.with_locale(account.user_locale || I18n.default_locale) do
       yield
     end
+  end
+
+  def set_autoreply_headers!
+    headers['Precedence'] = 'list'
+    headers['X-Auto-Response-Suppress'] = 'All'
+    headers['Auto-Submitted'] = 'auto-generated'
   end
 end
