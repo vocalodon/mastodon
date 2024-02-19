@@ -3,7 +3,11 @@
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy
 
 def host_to_url(str)
-  "http#{Rails.configuration.x.use_https ? 's' : ''}://#{str}" unless str.blank?
+  return if str.blank?
+
+  uri = Addressable::URI.parse("http#{Rails.configuration.x.use_https ? 's' : ''}://#{str}")
+  uri.path += '/' unless uri.path.blank? || uri.path.end_with?('/')
+  uri.to_s
 end
 
 base_host = Rails.configuration.x.web_domain
@@ -26,6 +30,7 @@ Rails.application.config.content_security_policy do |p|
   p.media_src       :self, :https, :data, assets_host
   p.frame_src       :self, :https
   p.manifest_src    :self, assets_host
+  p.form_action     :self
 
   if Rails.env.development?
     webpacker_urls = %w(ws http).map { |protocol| "#{protocol}#{Webpacker.dev_server.https? ? 's' : ''}://#{Webpacker.dev_server.host_with_port}" }
@@ -59,5 +64,21 @@ Rails.application.reloader.to_prepare do
 
   PgHero::HomeController.after_action do
     request.content_security_policy_nonce_generator = nil
+  end
+
+  if Rails.env.development?
+    LetterOpenerWeb::LettersController.content_security_policy do |p|
+      p.child_src       :self
+      p.connect_src     :none
+      p.frame_ancestors :self
+      p.frame_src       :self
+      p.script_src      :unsafe_inline
+      p.style_src       :unsafe_inline
+      p.worker_src      :none
+    end
+
+    LetterOpenerWeb::LettersController.after_action do |p|
+      request.content_security_policy_nonce_directives = %w(script-src)
+    end
   end
 end

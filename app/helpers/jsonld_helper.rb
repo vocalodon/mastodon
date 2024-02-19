@@ -15,6 +15,14 @@ module JsonLdHelper
     value.is_a?(Array) ? value.first : value
   end
 
+  def uri_from_bearcap(str)
+    if str&.start_with?('bear:')
+      Addressable::URI.parse(str).query_values['u']
+    else
+      str
+    end
+  end
+
   # The url attribute can be a string, an array of strings, or an array of objects.
   # The objects could include a mimeType. Not-included mimeType means it's text/html.
   def url_to_href(value, preferred_type = nil)
@@ -36,7 +44,13 @@ module JsonLdHelper
   end
 
   def as_array(value)
-    value.is_a?(Array) ? value : [value]
+    if value.nil?
+      []
+    elsif value.is_a?(Array)
+      value
+    else
+      [value]
+    end
   end
 
   def value_or_id(value)
@@ -48,7 +62,7 @@ module JsonLdHelper
   end
 
   def unsupported_uri_scheme?(uri)
-    !uri.start_with?('http://', 'https://')
+    uri.nil? || !uri.start_with?('http://', 'https://')
   end
 
   def invalid_origin?(url)
@@ -143,8 +157,8 @@ module JsonLdHelper
     end
   end
 
-  def fetch_resource(uri, id, on_behalf_of = nil)
-    unless id
+  def fetch_resource(uri, id_is_known, on_behalf_of = nil)
+    unless id_is_known
       json = fetch_resource_without_id_validation(uri, on_behalf_of)
 
       return if !json.is_a?(Hash) || unsupported_uri_scheme?(json['id'])
@@ -162,7 +176,19 @@ module JsonLdHelper
     build_request(uri, on_behalf_of).perform do |response|
       raise Mastodon::UnexpectedResponseError, response unless response_successful?(response) || response_error_unsalvageable?(response) || !raise_on_temporary_error
 
-      body_to_json(response.body_with_limit) if response.code == 200
+      body_to_json(response.body_with_limit) if response.code == 200 && valid_activitypub_content_type?(response)
+    end
+  end
+
+  def valid_activitypub_content_type?(response)
+    return true if response.mime_type == 'application/activity+json'
+
+    # When the mime type is `application/ld+json`, we need to check the profile,
+    # but `http.rb` does not parse it for us.
+    return false unless response.mime_type == 'application/ld+json'
+
+    response.headers[HTTP::Headers::CONTENT_TYPE]&.split(';')&.map(&:strip)&.any? do |str|
+      str.start_with?('profile="') && str[9...-1].split.include?('https://www.w3.org/ns/activitystreams')
     end
   end
 

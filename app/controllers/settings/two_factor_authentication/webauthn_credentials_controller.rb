@@ -21,7 +21,8 @@ module Settings
             display_name: current_user.account.username,
             id: current_user.webauthn_id,
           },
-          exclude: current_user.webauthn_credentials.pluck(:external_id)
+          exclude: current_user.webauthn_credentials.pluck(:external_id),
+          authenticator_selection: { user_verification: 'discouraged' }
         )
 
         session[:webauthn_challenge] = options_for_create.challenge
@@ -51,7 +52,7 @@ module Settings
             end
           else
             flash[:error] = I18n.t('webauthn_credentials.create.error')
-            status = :internal_server_error
+            status = :unprocessable_entity
           end
         else
           flash[:error] = t('webauthn_credentials.create.error')

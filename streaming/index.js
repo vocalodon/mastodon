@@ -63,33 +63,60 @@ const dbUrlToConfig = (dbUrl) => {
  * @param {Object.<string, any>} defaultConfig
  * @param {string} redisUrl
  */
-const redisUrlToClient = (defaultConfig, redisUrl) => {
+const redisUrlToClient = async (defaultConfig, redisUrl) => {
   const config = defaultConfig;
 
+  let client;
+
   if (!redisUrl) {
-    return redis.createClient(config);
+    client = redis.createClient(config);
+  } else if (redisUrl.startsWith('unix://')) {
+    client = redis.createClient(Object.assign(config, {
+      socket: {
+        path: redisUrl.slice(7),
+      },
+    }));
+  } else {
+    client = redis.createClient(Object.assign(config, {
+      url: redisUrl,
+    }));
   }
 
-  if (redisUrl.startsWith('unix://')) {
-    return redis.createClient(redisUrl.slice(7), config);
-  }
+  client.on('error', (err) => log.error('Redis Client Error!', err));
+  await client.connect();
 
-  return redis.createClient(Object.assign(config, {
-    url: redisUrl,
-  }));
+  return client;
 };
 
 const numWorkers = +process.env.STREAMING_CLUSTER_NUM || (env === 'development' ? 1 : Math.max(os.cpus().length - 1, 1));
 
 /**
+ * Attempts to safely parse a string as JSON, used when both receiving a message
+ * from redis and when receiving a message from a client over a websocket
+ * connection, this is why it accepts a `req` argument.
  * @param {string} json
- * @return {Object.<string, any>|null}
+ * @param {any?} req
+ * @returns {Object.<string, any>|null}
  */
-const parseJSON = (json) => {
+const parseJSON = (json, req) => {
   try {
     return JSON.parse(json);
   } catch (err) {
-    log.error(err);
+    /* FIXME: This logging isn't great, and should probably be done at the
+     * call-site of parseJSON, not in the method, but this would require changing
+     * the signature of parseJSON to return something akin to a Result type:
+     * [Error|null, null|Object<string,any}], and then handling the error
+     * scenarios.
+     */
+    if (req) {
+      if (req.accountId) {
+        log.warn(req.requestId, `Error parsing message from user ${req.accountId}: ${err}`);
+      } else {
+        log.silly(req.requestId, `Error parsing message from ${req.remoteAddress}: ${err}`);
+      }
+    } else {
+      log.warn(`Error parsing message from redis: ${err}`);
+    }
     return null;
   }
 };
@@ -102,7 +129,7 @@ const startMaster = () => {
   log.warn(`Starting streaming API server master with ${numWorkers} workers`);
 };
 
-const startWorker = (workerId) => {
+const startWorker = async (workerId) => {
   log.warn(`Starting worker ${workerId}`);
 
   const pgConfigs = {
@@ -127,21 +154,23 @@ const startWorker = (workerId) => {
 
   if (!!process.env.DB_SSLMODE && process.env.DB_SSLMODE !== 'disable') {
     pgConfigs.development.ssl = true;
-    pgConfigs.production.ssl  = true;
+    pgConfigs.production.ssl = true;
   }
 
   const app = express();
 
-  app.set('trusted proxy', process.env.TRUSTED_PROXY_IP || 'loopback,uniquelocal');
+  app.set('trust proxy', process.env.TRUSTED_PROXY_IP ? process.env.TRUSTED_PROXY_IP.split(/(?:\s*,\s*|\s+)/) : 'loopback,uniquelocal');
 
   const pgPool = new pg.Pool(Object.assign(pgConfigs[env], dbUrlToConfig(process.env.DATABASE_URL)));
   const server = http.createServer(app);
   const redisNamespace = process.env.REDIS_NAMESPACE || null;
 
   const redisParams = {
-    host:     process.env.REDIS_HOST     || '127.0.0.1',
-    port:     process.env.REDIS_PORT     || 6379,
-    db:       process.env.REDIS_DB       || 0,
+    socket: {
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      port: process.env.REDIS_PORT || 6379,
+    },
+    database: process.env.REDIS_DB || 0,
     password: process.env.REDIS_PASSWORD || undefined,
   };
 
@@ -151,25 +180,13 @@ const startWorker = (workerId) => {
 
   const redisPrefix = redisNamespace ? `${redisNamespace}:` : '';
 
-  const redisSubscribeClient = redisUrlToClient(redisParams, process.env.REDIS_URL);
-  const redisClient = redisUrlToClient(redisParams, process.env.REDIS_URL);
-
   /**
-   * @type {Object.<string, Array.<function(string): void>>}
+   * @type {Object.<string, Array.<function(Object<string, any>): void>>}
    */
   const subs = {};
 
-  redisSubscribeClient.on('message', (channel, message) => {
-    const callbacks = subs[channel];
-
-    log.silly(`New message on channel ${channel}`);
-
-    if (!callbacks) {
-      return;
-    }
-
-    callbacks.forEach(callback => callback(message));
-  });
+  const redisSubscribeClient = await redisUrlToClient(redisParams, process.env.REDIS_URL);
+  const redisClient = await redisUrlToClient(redisParams, process.env.REDIS_URL);
 
   /**
    * @param {string[]} channels
@@ -192,16 +209,42 @@ const startWorker = (workerId) => {
   };
 
   /**
+   * @param {string} message
    * @param {string} channel
-   * @param {function(string): void} callback
+   */
+  const onRedisMessage = (message, channel) => {
+    const callbacks = subs[channel];
+
+    log.silly(`New message on channel ${channel}`);
+
+    if (!callbacks) {
+      return;
+    }
+
+    const json = parseJSON(message, null);
+    if (!json) return;
+
+    callbacks.forEach(callback => callback(json));
+  };
+
+  /**
+   * @callback SubscriptionListener
+   * @param {ReturnType<parseJSON>} json of the message
+   * @returns void
+   */
+
+  /**
+   * @param {string} channel
+   * @param {SubscriptionListener} callback
    */
   const subscribe = (channel, callback) => {
     log.silly(`Adding listener for ${channel}`);
+
     subs[channel] = subs[channel] || [];
 
     if (subs[channel].length === 0) {
       log.verbose(`Subscribe ${channel}`);
-      redisSubscribeClient.subscribe(channel);
+      redisSubscribeClient.subscribe(channel, onRedisMessage);
     }
 
     subs[channel].push(callback);
@@ -209,7 +252,7 @@ const startWorker = (workerId) => {
 
   /**
    * @param {string} channel
-   * @param {function(string): void} callback
+   * @param {SubscriptionListener} callback
    */
   const unsubscribe = (channel, callback) => {
     log.silly(`Removing listener for ${channel}`);
@@ -283,6 +326,14 @@ const startWorker = (workerId) => {
   };
 
   /**
+   * @param {any} req
+   * @param {string[]} necessaryScopes
+   * @return {boolean}
+   */
+  const isInScope = (req, necessaryScopes) =>
+    req.scopes.some(scope => necessaryScopes.includes(scope));
+
+  /**
    * @param {string} token
    * @param {any} req
    * @return {Promise.<void>}
@@ -314,7 +365,6 @@ const startWorker = (workerId) => {
         req.scopes = result.rows[0].scopes.split(' ');
         req.accountId = result.rows[0].account_id;
         req.chosenLanguages = result.rows[0].chosen_languages;
-        req.allowNotifications = req.scopes.some(scope => ['read', 'read:notifications'].includes(scope));
         req.deviceId = result.rows[0].device_id;
 
         resolve();
@@ -352,13 +402,13 @@ const startWorker = (workerId) => {
 
   /**
    * @param {any} req
-   * @return {string}
+   * @returns {string|undefined}
    */
   const channelNameFromPath = req => {
     const { path, query } = req;
     const onlyMedia = isTruthy(query.only_media);
 
-    switch(path) {
+    switch (path) {
     case '/api/v1/streaming/user':
       return 'user';
     case '/api/v1/streaming/user/notification':
@@ -423,7 +473,7 @@ const startWorker = (workerId) => {
       requiredScopes.push('read:statuses');
     }
 
-    if (requiredScopes.some(requiredScope => req.scopes.includes(requiredScope))) {
+    if (req.scopes && requiredScopes.some(requiredScope => req.scopes.includes(requiredScope))) {
       resolve();
       return;
     }
@@ -461,15 +511,11 @@ const startWorker = (workerId) => {
   /**
    * @param {any} req
    * @param {SystemMessageHandlers} eventHandlers
-   * @return {function(string): void}
+   * @returns {function(object): void}
    */
   const createSystemMessageListener = (req, eventHandlers) => {
     return message => {
-      const json = parseJSON(message);
-
-      if (!json) return;
-
-      const { event } = json;
+      const { event } = message;
 
       log.silly(req.requestId, `System message for ${req.accountId}: ${event}`);
 
@@ -489,7 +535,7 @@ const startWorker = (workerId) => {
 
     const listener = createSystemMessageListener(req, {
 
-      onKill () {
+      onKill() {
         res.end();
       },
 
@@ -541,7 +587,7 @@ const startWorker = (workerId) => {
   };
 
   /**
-   * @param {array}
+   * @param {array} arr
    * @param {number=} shift
    * @return {string}
    */
@@ -578,40 +624,27 @@ const startWorker = (workerId) => {
    * @param {string[]} ids
    * @param {any} req
    * @param {function(string, string): void} output
-   * @param {function(string[], function(string): void): void} attachCloseHandler
+   * @param {undefined | function(string[], SubscriptionListener): void} attachCloseHandler
    * @param {boolean=} needsFiltering
-   * @param {boolean=} notificationOnly
-   * @return {function(string): void}
+   * @returns {SubscriptionListener}
    */
-  const streamFrom = (ids, req, output, attachCloseHandler, needsFiltering = false, notificationOnly = false) => {
-    const accountId  = req.accountId || req.remoteAddress;
-    const streamType = notificationOnly ? ' (notification)' : '';
+  const streamFrom = (ids, req, output, attachCloseHandler, needsFiltering = false) => {
+    const accountId = req.accountId || req.remoteAddress;
 
-    log.verbose(req.requestId, `Starting stream from ${ids.join(', ')} for ${accountId}${streamType}`);
+    log.verbose(req.requestId, `Starting stream from ${ids.join(', ')} for ${accountId}`);
 
+    // Currently message is of type string, soon it'll be Record<string, any>
     const listener = message => {
-      const json = parseJSON(message);
-
-      if (!json) return;
-
-      const { event, payload, queued_at } = json;
+      const { event, payload, queued_at } = message;
 
       const transmit = () => {
-        const now            = new Date().getTime();
-        const delta          = now - queued_at;
+        const now = new Date().getTime();
+        const delta = now - queued_at;
         const encodedPayload = typeof payload === 'object' ? JSON.stringify(payload) : payload;
 
         log.silly(req.requestId, `Transmitting for ${accountId}: ${event} ${encodedPayload} Delay: ${delta}ms`);
         output(event, encodedPayload);
       };
-
-      if (notificationOnly && event !== 'notification') {
-        return;
-      }
-
-      if (event === 'notification' && !req.allowNotifications) {
-        return;
-      }
 
       // Only messages that may require filtering are statuses, since notifications
       // are already personalized and deletes do not matter
@@ -620,9 +653,9 @@ const startWorker = (workerId) => {
         return;
       }
 
-      const unpackedPayload  = payload;
+      const unpackedPayload = payload;
       const targetAccountIds = [unpackedPayload.account.id].concat(unpackedPayload.mentions.map(item => item.id));
-      const accountDomain    = unpackedPayload.account.acct.split('@')[1];
+      const accountDomain = unpackedPayload.account.acct.split('@')[1];
 
       if (Array.isArray(req.chosenLanguages) && unpackedPayload.language !== null && req.chosenLanguages.indexOf(unpackedPayload.language) === -1) {
         log.silly(req.requestId, `Message ${unpackedPayload.id} filtered by language (${unpackedPayload.language})`);
@@ -642,7 +675,15 @@ const startWorker = (workerId) => {
         }
 
         const queries = [
-          client.query(`SELECT 1 FROM blocks WHERE (account_id = $1 AND target_account_id IN (${placeholders(targetAccountIds, 2)})) OR (account_id = $2 AND target_account_id = $1) UNION SELECT 1 FROM mutes WHERE account_id = $1 AND target_account_id IN (${placeholders(targetAccountIds, 2)})`, [req.accountId, unpackedPayload.account.id].concat(targetAccountIds)),
+          client.query(`SELECT 1
+                        FROM blocks
+                        WHERE (account_id = $1 AND target_account_id IN (${placeholders(targetAccountIds, 2)}))
+                           OR (account_id = $2 AND target_account_id = $1)
+                        UNION
+                        SELECT 1
+                        FROM mutes
+                        WHERE account_id = $1
+                          AND target_account_id IN (${placeholders(targetAccountIds, 2)})`, [req.accountId, unpackedPayload.account.id].concat(targetAccountIds)),
         ];
 
         if (accountDomain) {
@@ -668,7 +709,7 @@ const startWorker = (workerId) => {
       subscribe(`${redisPrefix}${id}`, listener);
     });
 
-    if (attachCloseHandler) {
+    if (typeof attachCloseHandler === 'function') {
       attachCloseHandler(ids.map(id => `${redisPrefix}${id}`), listener);
     }
 
@@ -705,8 +746,9 @@ const startWorker = (workerId) => {
   /**
    * @param {any} req
    * @param {function(): void} [closeHandler]
-   * @return {function(string[], function(string): void)}
+   * @returns {function(string[], SubscriptionListener): void}
    */
+
   const streamHttpEnd = (req, closeHandler = undefined) => (ids, listener) => {
     req.on('close', () => {
       ids.forEach(id => {
@@ -757,9 +799,9 @@ const startWorker = (workerId) => {
   app.get('/api/v1/streaming/*', (req, res) => {
     channelNameToIds(req, channelNameFromPath(req), req.query).then(({ channelIds, options }) => {
       const onSend = streamToHttp(req, res);
-      const onEnd  = streamHttpEnd(req, subscriptionHeartbeat(channelIds));
+      const onEnd = streamHttpEnd(req, subscriptionHeartbeat(channelIds));
 
-      streamFrom(channelIds, req, onSend, onEnd, options.needsFiltering, options.notificationOnly);
+      streamFrom(channelIds, req, onSend, onEnd, options.needsFiltering);
     }).catch(err => {
       log.verbose(req.requestId, 'Subscription error:', err.toString());
       httpNotFound(res);
@@ -777,72 +819,90 @@ const startWorker = (workerId) => {
 
   /**
    * @param {any} req
+   * @return {string[]}
+   */
+  const channelsForUserStream = req => {
+    const arr = [`timeline:${req.accountId}`];
+
+    if (isInScope(req, ['crypto']) && req.deviceId) {
+      arr.push(`timeline:${req.accountId}:${req.deviceId}`);
+    }
+
+    if (isInScope(req, ['read', 'read:notifications'])) {
+      arr.push(`timeline:${req.accountId}:notifications`);
+    }
+
+    return arr;
+  };
+
+  /**
+   * @param {any} req
    * @param {string} name
    * @param {StreamParams} params
-   * @return {Promise.<{ channelIds: string[], options: { needsFiltering: boolean, notificationOnly: boolean } }>}
+   * @return {Promise.<{ channelIds: string[], options: { needsFiltering: boolean } }>}
    */
   const channelNameToIds = (req, name, params) => new Promise((resolve, reject) => {
-    switch(name) {
+    switch (name) {
     case 'user':
       resolve({
-        channelIds: req.deviceId ? [`timeline:${req.accountId}`, `timeline:${req.accountId}:${req.deviceId}`] : [`timeline:${req.accountId}`],
-        options: { needsFiltering: false, notificationOnly: false },
+        channelIds: channelsForUserStream(req),
+        options: { needsFiltering: false },
       });
 
       break;
     case 'user:notification':
       resolve({
-        channelIds: [`timeline:${req.accountId}`],
-        options: { needsFiltering: false, notificationOnly: true },
+        channelIds: [`timeline:${req.accountId}:notifications`],
+        options: { needsFiltering: false },
       });
 
       break;
     case 'public':
       resolve({
         channelIds: ['timeline:public'],
-        options: { needsFiltering: true, notificationOnly: false },
+        options: { needsFiltering: true },
       });
 
       break;
     case 'public:local':
       resolve({
         channelIds: ['timeline:public:local'],
-        options: { needsFiltering: true, notificationOnly: false },
+        options: { needsFiltering: true },
       });
 
       break;
     case 'public:remote':
       resolve({
         channelIds: ['timeline:public:remote'],
-        options: { needsFiltering: true, notificationOnly: false },
+        options: { needsFiltering: true },
       });
 
       break;
     case 'public:media':
       resolve({
         channelIds: ['timeline:public:media'],
-        options: { needsFiltering: true, notificationOnly: false },
+        options: { needsFiltering: true },
       });
 
       break;
     case 'public:local:media':
       resolve({
         channelIds: ['timeline:public:local:media'],
-        options: { needsFiltering: true, notificationOnly: false },
+        options: { needsFiltering: true },
       });
 
       break;
     case 'public:remote:media':
       resolve({
         channelIds: ['timeline:public:remote:media'],
-        options: { needsFiltering: true, notificationOnly: false },
+        options: { needsFiltering: true },
       });
 
       break;
     case 'direct':
       resolve({
         channelIds: [`timeline:direct:${req.accountId}`],
-        options: { needsFiltering: false, notificationOnly: false },
+        options: { needsFiltering: false },
       });
 
       break;
@@ -852,7 +912,7 @@ const startWorker = (workerId) => {
       } else {
         resolve({
           channelIds: [`timeline:hashtag:${params.tag.toLowerCase()}`],
-          options: { needsFiltering: true, notificationOnly: false },
+          options: { needsFiltering: true },
         });
       }
 
@@ -863,7 +923,7 @@ const startWorker = (workerId) => {
       } else {
         resolve({
           channelIds: [`timeline:hashtag:${params.tag.toLowerCase()}:local`],
-          options: { needsFiltering: true, notificationOnly: false },
+          options: { needsFiltering: true },
         });
       }
 
@@ -872,7 +932,7 @@ const startWorker = (workerId) => {
       authorizeListAccess(params.list, req).then(() => {
         resolve({
           channelIds: [`timeline:list:${params.list}`],
-          options: { needsFiltering: false, notificationOnly: false },
+          options: { needsFiltering: false },
         });
       }).catch(() => {
         reject('Not authorized to stream this list');
@@ -903,7 +963,7 @@ const startWorker = (workerId) => {
    * @typedef WebSocketSession
    * @property {any} socket
    * @property {any} request
-   * @property {Object.<string, { listener: function(string): void, stopHeartbeat: function(): void }>} subscriptions
+   * @property {Object.<string, { listener: SubscriptionListener, stopHeartbeat: function(): void }>} subscriptions
    */
 
   /**
@@ -912,14 +972,17 @@ const startWorker = (workerId) => {
    * @param {StreamParams} params
    */
   const subscribeWebsocketToChannel = ({ socket, request, subscriptions }, channelName, params) =>
-    checkScopes(request, channelName).then(() => channelNameToIds(request, channelName, params)).then(({ channelIds, options }) => {
+    checkScopes(request, channelName).then(() => channelNameToIds(request, channelName, params)).then(({
+      channelIds,
+      options,
+    }) => {
       if (subscriptions[channelIds.join(';')]) {
         return;
       }
 
-      const onSend        = streamToWs(request, socket, streamNameFromChannelName(channelName, params));
+      const onSend = streamToWs(request, socket, streamNameFromChannelName(channelName, params));
       const stopHeartbeat = subscriptionHeartbeat(channelIds);
-      const listener      = streamFrom(channelIds, request, onSend, undefined, options.needsFiltering, options.notificationOnly);
+      const listener = streamFrom(channelIds, request, onSend, undefined, options.needsFiltering);
 
       subscriptions[channelIds.join(';')] = {
         listener,
@@ -967,7 +1030,7 @@ const startWorker = (workerId) => {
 
     const listener = createSystemMessageListener(request, {
 
-      onKill () {
+      onKill() {
         socket.close();
       },
 
@@ -977,7 +1040,8 @@ const startWorker = (workerId) => {
 
     subscriptions[systemChannelId] = {
       listener,
-      stopHeartbeat: () => {},
+      stopHeartbeat: () => {
+      },
     };
   };
 
@@ -996,7 +1060,7 @@ const startWorker = (workerId) => {
   wss.on('connection', (ws, req) => {
     const location = url.parse(req.url, true);
 
-    req.requestId     = uuid.v4();
+    req.requestId = uuid.v4();
     req.remoteAddress = ws._socket.remoteAddress;
 
     ws.isAlive = true;
@@ -1031,8 +1095,15 @@ const startWorker = (workerId) => {
     ws.on('close', onEnd);
     ws.on('error', onEnd);
 
-    ws.on('message', data => {
-      const json = parseJSON(data);
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) {
+        log.warn('socket', 'Received binary data, closing connection');
+        ws.close(1003, 'The mastodon streaming server does not support binary messages');
+        return;
+      }
+      const message = data.toString('utf8');
+
+      const json = parseJSON(message, session.request);
 
       if (!json) return;
 

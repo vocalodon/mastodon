@@ -13,15 +13,13 @@ module Paperclip
       @time                = options[:time] || 3
       @passthrough_options = options[:passthrough_options]
       @convert_options     = options[:convert_options].dup
+      @vfr_threshold       = options[:vfr_frame_rate_threshold]
     end
 
     def make
       metadata = VideoMetadataExtractor.new(@file.path)
 
-      unless metadata.valid?
-        log("Unsupported file #{@file.path}")
-        return File.open(@file.path)
-      end
+      raise Paperclip::Error, "Error while transcoding #{@file.path}: unsupported file" unless metadata.valid?
 
       update_attachment_type(metadata)
       update_options_from_metadata(metadata)
@@ -39,8 +37,15 @@ module Paperclip
         @output_options['f']       = 'image2'
         @output_options['vframes'] = 1
       when 'mp4'
-        @output_options['acodec'] = 'aac'
-        @output_options['strict'] = 'experimental'
+        unless eligible_to_passthrough?(metadata)
+          @output_options['acodec'] = 'aac'
+          @output_options['strict'] = 'experimental'
+
+          if high_vfr?(metadata)
+            @output_options['vsync'] = 'vfr'
+            @output_options['r'] = @vfr_threshold
+          end
+        end
       end
 
       command_arguments, interpolations = prepare_command(destination)
@@ -88,11 +93,19 @@ module Paperclip
     end
 
     def update_options_from_metadata(metadata)
-      return unless @passthrough_options && @passthrough_options[:video_codecs].include?(metadata.video_codec) && @passthrough_options[:audio_codecs].include?(metadata.audio_codec) && @passthrough_options[:colorspaces].include?(metadata.colorspace)
+      return unless eligible_to_passthrough?(metadata)
 
       @format          = @passthrough_options[:options][:format] || @format
       @time            = @passthrough_options[:options][:time]   || @time
       @convert_options = @passthrough_options[:options][:convert_options].dup
+    end
+
+    def high_vfr?(metadata)
+      @vfr_threshold && metadata.r_frame_rate && metadata.r_frame_rate > @vfr_threshold
+    end
+
+    def eligible_to_passthrough?(metadata)
+      @passthrough_options && @passthrough_options[:video_codecs].include?(metadata.video_codec) && @passthrough_options[:audio_codecs].include?(metadata.audio_codec) && @passthrough_options[:colorspaces].include?(metadata.colorspace)
     end
 
     def update_attachment_type(metadata)
