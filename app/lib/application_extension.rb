@@ -32,8 +32,4 @@ module ApplicationExtension
       end
     end
   end
-
-  def confirmation_redirect_uri
-    redirect_uri.lines.first.strip
-  end
 end
