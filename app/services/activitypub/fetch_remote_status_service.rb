@@ -2,13 +2,9 @@
 
 class ActivityPub::FetchRemoteStatusService < BaseService
   include JsonLdHelper
-  include Redisable
-
-  DISCOVERIES_PER_REQUEST = 1000
 
   # Should be called when uri has already been checked for locality
-  def call(uri, prefetched_body: nil, on_behalf_of: nil, expected_actor_uri: nil, request_id: nil)
-    @request_id = request_id || "#{Time.now.utc.to_i}-status-#{uri}"
+  def call(uri, prefetched_body: nil, on_behalf_of: nil)
     @json = begin
       if prefetched_body.nil?
         fetch_resource(uri, true, on_behalf_of)
@@ -34,7 +30,6 @@ class ActivityPub::FetchRemoteStatusService < BaseService
     end
 
     return if activity_json.nil? || object_uri.nil? || !trustworthy_attribution?(@json['id'], actor_uri)
-    return if expected_actor_uri.present? && actor_uri != expected_actor_uri
     return ActivityPub::TagManager.instance.uri_to_resource(object_uri, Status) if ActivityPub::TagManager.instance.local_uri?(object_uri)
 
     actor = account_from_uri(actor_uri)
@@ -45,13 +40,7 @@ class ActivityPub::FetchRemoteStatusService < BaseService
     # activity as an update rather than create
     activity_json['type'] = 'Update' if equals_or_includes_any?(activity_json['type'], %w(Create)) && Status.where(uri: object_uri, account_id: actor.id).exists?
 
-    with_redis do |redis|
-      discoveries = redis.incr("status_discovery_per_request:#{@request_id}")
-      redis.expire("status_discovery_per_request:#{@request_id}", 5.minutes.seconds)
-      return nil if discoveries > DISCOVERIES_PER_REQUEST
-    end
-
-    ActivityPub::Activity.factory(activity_json, actor, request_id: @request_id).perform
+    ActivityPub::Activity.factory(activity_json, actor).perform
   end
 
   private
@@ -63,7 +52,7 @@ class ActivityPub::FetchRemoteStatusService < BaseService
 
   def account_from_uri(uri)
     actor = ActivityPub::TagManager.instance.uri_to_resource(uri, Account)
-    actor = ActivityPub::FetchRemoteAccountService.new.call(uri, request_id: @request_id) if actor.nil? || actor.possibly_stale?
+    actor = ActivityPub::FetchRemoteAccountService.new.call(uri) if actor.nil? || actor.possibly_stale?
     actor
   end
 
