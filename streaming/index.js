@@ -12,6 +12,7 @@ const url = require('url');
 const uuid = require('uuid');
 const fs = require('fs');
 const WebSocket = require('ws');
+const { JSDOM } = require('jsdom');
 
 const env = process.env.NODE_ENV || 'development';
 const alwaysRequireAuth = process.env.LIMITED_FEDERATION_MODE === 'true' || process.env.WHITELIST_MODE === 'true' || process.env.AUTHORIZED_FETCH === 'true';
@@ -522,6 +523,9 @@ const startWorker = async (workerId) => {
       if (event === 'kill') {
         log.verbose(req.requestId, `Closing connection for ${req.accountId} due to expired access token`);
         eventHandlers.onKill();
+      } else if (event === 'filters_changed') {
+        log.verbose(req.requestId, `Invalidating filters cache for ${req.accountId}`);
+        req.cachedFilters = null;
       }
     };
   };
@@ -531,7 +535,8 @@ const startWorker = async (workerId) => {
    * @param {any} res
    */
   const subscribeHttpToSystemChannel = (req, res) => {
-    const systemChannelId = `timeline:access_token:${req.accessTokenId}`;
+    const accessTokenChannelId = `timeline:access_token:${req.accessTokenId}`;
+    const systemChannelId = `timeline:system:${req.accountId}`;
 
     const listener = createSystemMessageListener(req, {
 
@@ -542,9 +547,11 @@ const startWorker = async (workerId) => {
     });
 
     res.on('close', () => {
+      unsubscribe(`${redisPrefix}${accessTokenChannelId}`, listener);
       unsubscribe(`${redisPrefix}${systemChannelId}`, listener);
     });
 
+    subscribe(`${redisPrefix}${accessTokenChannelId}`, listener);
     subscribe(`${redisPrefix}${systemChannelId}`, listener);
   };
 
@@ -633,42 +640,57 @@ const startWorker = async (workerId) => {
 
     log.verbose(req.requestId, `Starting stream from ${ids.join(', ')} for ${accountId}`);
 
-    // Currently message is of type string, soon it'll be Record<string, any>
+    const transmit = (event, payload) => {
+      // TODO: Replace "string"-based delete payloads with object payloads:
+      const encodedPayload = typeof payload === 'object' ? JSON.stringify(payload) : payload;
+
+      log.silly(req.requestId, `Transmitting for ${accountId}: ${event} ${encodedPayload}`);
+      output(event, encodedPayload);
+    };
+
+    // The listener used to process each message off the redis subscription,
+    // message here is an object with an `event` and `payload` property. Some
+    // events also include a queued_at value, but this is being removed shortly.
+    /** @type {SubscriptionListener} */
     const listener = message => {
-      const { event, payload, queued_at } = message;
+      const { event, payload } = message;
 
-      const transmit = () => {
-        const now = new Date().getTime();
-        const delta = now - queued_at;
-        const encodedPayload = typeof payload === 'object' ? JSON.stringify(payload) : payload;
-
-        log.silly(req.requestId, `Transmitting for ${accountId}: ${event} ${encodedPayload} Delay: ${delta}ms`);
-        output(event, encodedPayload);
-      };
-
-      // Only messages that may require filtering are statuses, since notifications
-      // are already personalized and deletes do not matter
-      if (!needsFiltering || event !== 'update') {
-        transmit();
+      // Streaming only needs to apply filtering to some channels and only to
+      // some events. This is because majority of the filtering happens on the
+      // Ruby on Rails side when producing the event for streaming.
+      //
+      // The only events that require filtering from the streaming server are
+      // `update` and `status.update`, all other events are transmitted to the
+      // client as soon as they're received (pass-through).
+      //
+      // The channels that need filtering are determined in the function
+      // `channelNameToIds` defined below:
+      if (!needsFiltering || (event !== 'update' && event !== 'status.update')) {
+        transmit(event, payload);
         return;
       }
 
-      const unpackedPayload = payload;
-      const targetAccountIds = [unpackedPayload.account.id].concat(unpackedPayload.mentions.map(item => item.id));
-      const accountDomain = unpackedPayload.account.acct.split('@')[1];
+      // The rest of the logic from here on in this function is to handle
+      // filtering of statuses:
 
-      if (Array.isArray(req.chosenLanguages) && unpackedPayload.language !== null && req.chosenLanguages.indexOf(unpackedPayload.language) === -1) {
-        log.silly(req.requestId, `Message ${unpackedPayload.id} filtered by language (${unpackedPayload.language})`);
+      // Filter based on language:
+      if (Array.isArray(req.chosenLanguages) && payload.language !== null && req.chosenLanguages.indexOf(payload.language) === -1) {
+        log.silly(req.requestId, `Message ${payload.id} filtered by language (${payload.language})`);
         return;
       }
 
       // When the account is not logged in, it is not necessary to confirm the block or mute
       if (!req.accountId) {
-        transmit();
+        transmit(event, payload);
         return;
       }
 
-      pgPool.connect((err, client, done) => {
+      // Filter based on domain blocks, blocks, mutes, or custom filters:
+      const targetAccountIds = [payload.account.id].concat(payload.mentions.map(item => item.id));
+      const accountDomain = payload.account.acct.split('@')[1];
+
+      // TODO: Move this logic out of the message handling loop
+      pgPool.connect((err, client, releasePgConnection) => {
         if (err) {
           log.error(err);
           return;
@@ -683,23 +705,138 @@ const startWorker = async (workerId) => {
                         SELECT 1
                         FROM mutes
                         WHERE account_id = $1
-                          AND target_account_id IN (${placeholders(targetAccountIds, 2)})`, [req.accountId, unpackedPayload.account.id].concat(targetAccountIds)),
+                          AND target_account_id IN (${placeholders(targetAccountIds, 2)})`, [req.accountId, payload.account.id].concat(targetAccountIds)),
         ];
 
         if (accountDomain) {
           queries.push(client.query('SELECT 1 FROM account_domain_blocks WHERE account_id = $1 AND domain = $2', [req.accountId, accountDomain]));
         }
 
-        Promise.all(queries).then(values => {
-          done();
+        if (!payload.filtered && !req.cachedFilters) {
+          queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, keyword.keyword AS keyword, keyword.whole_word AS whole_word FROM custom_filter_keywords keyword JOIN custom_filters filter ON keyword.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
+        }
 
-          if (values[0].rows.length > 0 || (values.length > 1 && values[1].rows.length > 0)) {
+        Promise.all(queries).then(values => {
+          releasePgConnection();
+
+          // Handling blocks & mutes and domain blocks: If one of those applies,
+          // then we don't transmit the payload of the event to the client
+          if (values[0].rows.length > 0 || (accountDomain && values[1].rows.length > 0)) {
             return;
           }
 
-          transmit();
+          // If the payload already contains the `filtered` property, it means
+          // that filtering has been applied on the ruby on rails side, as
+          // such, we don't need to construct or apply the filters in streaming:
+          if (Object.prototype.hasOwnProperty.call(payload, "filtered")) {
+            transmit(event, payload);
+            return;
+          }
+
+          // Handling for constructing the custom filters and caching them on the request
+          // TODO: Move this logic out of the message handling lifecycle
+          if (!req.cachedFilters) {
+            const filterRows = values[accountDomain ? 2 : 1].rows;
+
+            req.cachedFilters = filterRows.reduce((cache, filter) => {
+              if (cache[filter.id]) {
+                cache[filter.id].keywords.push([filter.keyword, filter.whole_word]);
+              } else {
+                cache[filter.id] = {
+                  keywords: [[filter.keyword, filter.whole_word]],
+                  expires_at: filter.expires_at,
+                  filter: {
+                    id: filter.id,
+                    title: filter.title,
+                    context: filter.context,
+                    expires_at: filter.expires_at,
+                    // filter.filter_action is the value from the
+                    // custom_filters.action database column, it is an integer
+                    // representing a value in an enum defined by Ruby on Rails:
+                    //
+                    // enum { warn: 0, hide: 1 }
+                    filter_action: ['warn', 'hide'][filter.filter_action],
+                  },
+                };
+              }
+
+              return cache;
+            }, {});
+
+            // Construct the regular expressions for the custom filters: This
+            // needs to be done in a separate loop as the database returns one
+            // filterRow per keyword, so we need all the keywords before
+            // constructing the regular expression
+            Object.keys(req.cachedFilters).forEach((key) => {
+              req.cachedFilters[key].regexp = new RegExp(req.cachedFilters[key].keywords.map(([keyword, whole_word]) => {
+                let expr = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');;
+
+                if (whole_word) {
+                  if (/^[\w]/.test(expr)) {
+                    expr = `\\b${expr}`;
+                  }
+
+                  if (/[\w]$/.test(expr)) {
+                    expr = `${expr}\\b`;
+                  }
+                }
+
+                return expr;
+              }).join('|'), 'i');
+            });
+          }
+
+          // Apply cachedFilters against the payload, constructing a
+          // `filter_results` array of FilterResult entities
+          if (req.cachedFilters) {
+            const status = payload;
+            // TODO: Calculate searchableContent in Ruby on Rails:
+            const searchableContent = ([status.spoiler_text || '', status.content].concat((status.poll && status.poll.options) ? status.poll.options.map(option => option.title) : [])).concat(status.media_attachments.map(att => att.description)).join('\n\n').replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
+            const searchableTextContent = JSDOM.fragment(searchableContent).textContent;
+
+            const now = new Date();
+            const filter_results = Object.values(req.cachedFilters).reduce((results, cachedFilter) => {
+              // Check the filter hasn't expired before applying:
+              if (cachedFilter.expires_at !== null && cachedFilter.expires_at < now) {
+                return results;
+              }
+
+              // Just in-case JSDOM fails to find textContent in searchableContent
+              if (!searchableTextContent) {
+                return results;
+              }
+
+              const keyword_matches = searchableTextContent.match(cachedFilter.regexp);
+              if (keyword_matches) {
+                // results is an Array of FilterResult; status_matches is always
+                // null as we only are only applying the keyword-based custom
+                // filters, not the status-based custom filters.
+                // https://docs.joinmastodon.org/entities/FilterResult/
+                results.push({
+                  filter: cachedFilter.filter,
+                  keyword_matches,
+                  status_matches: null
+                });
+              }
+
+              return results;
+            }, []);
+
+            // Send the payload + the FilterResults as the `filtered` property
+            // to the streaming connection. To reach this code, the `event` must
+            // have been either `update` or `status.update`, meaning the
+            // `payload` is a Status entity, which has a `filtered` property:
+            //
+            // filtered: https://docs.joinmastodon.org/entities/Status/#filtered
+            transmit(event, {
+              ...payload,
+              filtered: filter_results
+            });
+          } else {
+            transmit(event, payload);
+          }
         }).catch(err => {
-          done();
+          releasePgConnection();
           log.error(err);
         });
       });
@@ -836,6 +973,34 @@ const startWorker = async (workerId) => {
   };
 
   /**
+   * See app/lib/ascii_folder.rb for the canon definitions
+   * of these constants
+   */
+  const NON_ASCII_CHARS        = 'ÀÁÂÃÄÅàáâãäåĀāĂăĄąÇçĆćĈĉĊċČčÐðĎďĐđÈÉÊËèéêëĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĦħÌÍÎÏìíîïĨĩĪīĬĭĮįİıĴĵĶķĸĹĺĻļĽľĿŀŁłÑñŃńŅņŇňŉŊŋÒÓÔÕÖØòóôõöøŌōŎŏŐőŔŕŖŗŘřŚśŜŝŞşŠšſŢţŤťŦŧÙÚÛÜùúûüŨũŪūŬŭŮůŰűŲųŴŵÝýÿŶŷŸŹźŻżŽž';
+  const EQUIVALENT_ASCII_CHARS = 'AAAAAAaaaaaaAaAaAaCcCcCcCcCcDdDdDdEEEEeeeeEeEeEeEeEeGgGgGgGgHhHhIIIIiiiiIiIiIiIiIiJjKkkLlLlLlLlLlNnNnNnNnnNnOOOOOOooooooOoOoOoRrRrRrSsSsSsSssTtTtTtUUUUuuuuUuUuUuUuUuUuWwYyyYyYZzZzZz';
+
+  /**
+   * @param {string} str
+   * @return {string}
+   */
+  const foldToASCII = str => {
+    const regex = new RegExp(NON_ASCII_CHARS.split('').join('|'), 'g');
+
+    return str.replace(regex, match => {
+      const index = NON_ASCII_CHARS.indexOf(match);
+      return EQUIVALENT_ASCII_CHARS[index];
+    });
+  };
+
+  /**
+   * @param {string} str
+   * @return {string}
+   */
+  const normalizeHashtag = str => {
+    return foldToASCII(str.normalize('NFKC').toLowerCase()).replace(/[^\p{L}\p{N}_\u00b7\u200c]/gu, '');
+  };
+
+  /**
    * @param {any} req
    * @param {string} name
    * @param {StreamParams} params
@@ -911,7 +1076,7 @@ const startWorker = async (workerId) => {
         reject('No tag for stream provided');
       } else {
         resolve({
-          channelIds: [`timeline:hashtag:${params.tag.toLowerCase()}`],
+          channelIds: [`timeline:hashtag:${normalizeHashtag(params.tag)}`],
           options: { needsFiltering: true },
         });
       }
@@ -922,7 +1087,7 @@ const startWorker = async (workerId) => {
         reject('No tag for stream provided');
       } else {
         resolve({
-          channelIds: [`timeline:hashtag:${params.tag.toLowerCase()}:local`],
+          channelIds: [`timeline:hashtag:${normalizeHashtag(params.tag)}:local`],
           options: { needsFiltering: true },
         });
       }
@@ -1026,7 +1191,8 @@ const startWorker = async (workerId) => {
    * @param {WebSocketSession} session
    */
   const subscribeWebsocketToSystemChannel = ({ socket, request, subscriptions }) => {
-    const systemChannelId = `timeline:access_token:${request.accessTokenId}`;
+    const accessTokenChannelId = `timeline:access_token:${request.accessTokenId}`;
+    const systemChannelId = `timeline:system:${request.accountId}`;
 
     const listener = createSystemMessageListener(request, {
 
@@ -1036,7 +1202,14 @@ const startWorker = async (workerId) => {
 
     });
 
+    subscribe(`${redisPrefix}${accessTokenChannelId}`, listener);
     subscribe(`${redisPrefix}${systemChannelId}`, listener);
+
+    subscriptions[accessTokenChannelId] = {
+      listener,
+      stopHeartbeat: () => {
+      },
+    };
 
     subscriptions[systemChannelId] = {
       listener,
