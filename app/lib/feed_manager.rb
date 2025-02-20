@@ -7,7 +7,7 @@ class FeedManager
   include Redisable
 
   # Maximum number of items stored in a single feed
-  MAX_ITEMS = 400
+  MAX_ITEMS = 800
 
   # Number of items in the feed since last reblog of status
   # before the new reblog will be inserted. Must be <= MAX_ITEMS
@@ -58,6 +58,7 @@ class FeedManager
   # @param [Boolean] update
   # @return [Boolean]
   def push_to_home(account, status, update: false)
+    return false unless account.user&.signed_in_recently?
     return false unless add_to_feed(:home, account.id, status, aggregate_reblogs: account.user&.aggregates_reblogs?)
 
     trim(:home, account.id)
@@ -83,7 +84,9 @@ class FeedManager
   # @param [Boolean] update
   # @return [Boolean]
   def push_to_list(list, status, update: false)
-    return false if filter_from_list?(status, list) || !add_to_feed(:list, list.id, status, aggregate_reblogs: list.account.user&.aggregates_reblogs?)
+    return false if filter_from_list?(status, list)
+    return false unless list.account.user&.signed_in_recently?
+    return false unless add_to_feed(:list, list.id, status, aggregate_reblogs: list.account.user&.aggregates_reblogs?)
 
     trim(:list, list.id)
     PushUpdateWorker.perform_async(list.account_id, status.id, "timeline:list:#{list.id}", { 'update' => update }) if push_update_required?("timeline:list:#{list.id}")
@@ -107,6 +110,8 @@ class FeedManager
   # @param [Account] into_account
   # @return [void]
   def merge_into_home(from_account, into_account)
+    return unless into_account.user&.signed_in_recently?
+
     timeline_key = key(:home, into_account.id)
     aggregate    = into_account.user&.aggregates_reblogs?
     query        = from_account.statuses.where(visibility: [:public, :unlisted, :private]).includes(:preloadable_poll, :media_attachments, reblog: :account).limit(FeedManager::MAX_ITEMS / 4)
@@ -133,6 +138,8 @@ class FeedManager
   # @param [List] list
   # @return [void]
   def merge_into_list(from_account, list)
+    return unless list.account.user&.signed_in_recently?
+
     timeline_key = key(:list, list.id)
     aggregate    = list.account.user&.aggregates_reblogs?
     query        = from_account.statuses.where(visibility: [:public, :unlisted, :private]).includes(:preloadable_poll, :media_attachments, reblog: :account).limit(FeedManager::MAX_ITEMS / 4)
@@ -365,6 +372,7 @@ class FeedManager
     end
 
     return true if check_for_blocks.any? { |target_account_id| crutches[:blocking][target_account_id] || crutches[:muting][target_account_id] }
+    return true if crutches[:blocked_by][status.account_id]
 
     if status.reply? && !status.in_reply_to_account_id.nil?                                                                      # Filter out if it's a reply
       should_filter   = !crutches[:following][status.in_reply_to_account_id]                                                     # and I'm not following the person it's a reply to
@@ -534,8 +542,8 @@ class FeedManager
       arr = crutches[:active_mentions][s.id] || []
       arr.concat([s.account_id])
 
-      if s.reblog?
-        arr.concat([s.reblog.account_id])
+      if s.reblog? && s.reblog.present?
+        arr.push(s.reblog.account_id)
         arr.concat(crutches[:active_mentions][s.reblog_of_id] || [])
       end
 
@@ -548,7 +556,7 @@ class FeedManager
     crutches[:blocking]        = Block.where(account_id: receiver_id, target_account_id: check_for_blocks).pluck(:target_account_id).index_with(true)
     crutches[:muting]          = Mute.where(account_id: receiver_id, target_account_id: check_for_blocks).pluck(:target_account_id).index_with(true)
     crutches[:domain_blocking] = AccountDomainBlock.where(account_id: receiver_id, domain: statuses.flat_map { |s| [s.account.domain, s.reblog&.account&.domain] }.compact).pluck(:domain).index_with(true)
-    crutches[:blocked_by]      = Block.where(target_account_id: receiver_id, account_id: statuses.map { |s| s.reblog&.account_id }.compact).pluck(:account_id).index_with(true)
+    crutches[:blocked_by]      = Block.where(target_account_id: receiver_id, account_id: statuses.map { |s| [s.account_id, s.reblog&.account_id] }.flatten.compact).pluck(:account_id).index_with(true)
 
     crutches
   end
