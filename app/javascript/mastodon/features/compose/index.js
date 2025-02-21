@@ -18,6 +18,7 @@ import Icon from 'mastodon/components/icon';
 import { logOut } from 'mastodon/utils/log_out';
 import Column from 'mastodon/components/column';
 import { Helmet } from 'react-helmet';
+import { isMobile } from '../../is_mobile';
 import AdditionalContainer from './containers/additional_container';
 
 const messages = defineMessages({
@@ -74,15 +75,15 @@ class Compose extends React.PureComponent {
     }));
 
     return false;
-  }
+  };
 
   onFocus = () => {
     this.props.dispatch(changeComposing(true));
-  }
+  };
 
   onBlur = () => {
     this.props.dispatch(changeComposing(false));
-  }
+  };
 
   render () {
     const { multiColumn, showSearch, intl } = this.props;
@@ -116,7 +117,7 @@ class Compose extends React.PureComponent {
             <div className='drawer__inner' onFocus={this.onFocus}>
               <NavigationContainer onClose={this.onBlur} />
 
-              <ComposeFormContainer />
+              <ComposeFormContainer autoFocus={!isMobile(window.innerWidth)} />
               <AdditionalContainer />
 
               <div className='drawer__inner__mastodon'>
