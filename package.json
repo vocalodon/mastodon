@@ -159,7 +159,7 @@
     "react-test-renderer": "^16.14.0",
     "stylelint": "^14.16.1",
     "stylelint-config-standard-scss": "^6.1.0",
-    "webpack-dev-server": "^3.11.3",
+    "webpack-dev-server": "^5.2.1",
     "yargs": "^17.6.2"
   },
   "resolutions": {
