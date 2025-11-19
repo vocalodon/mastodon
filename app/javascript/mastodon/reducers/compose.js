@@ -1,3 +1,5 @@
+import { Map as ImmutableMap, List as ImmutableList, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
+
 import {
   COMPOSE_MOUNT,
   COMPOSE_UNMOUNT,
@@ -46,14 +48,14 @@ import {
   COMPOSE_CHANGE_MEDIA_DESCRIPTION,
   COMPOSE_CHANGE_MEDIA_FOCUS,
   COMPOSE_SET_STATUS,
+  COMPOSE_FOCUS,
 } from '../actions/compose';
-import { TIMELINE_DELETE } from '../actions/timelines';
-import { STORE_HYDRATE } from '../actions/store';
 import { REDRAFT } from '../actions/statuses';
-import { Map as ImmutableMap, List as ImmutableList, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
-import uuid from '../uuid';
+import { STORE_HYDRATE } from '../actions/store';
+import { TIMELINE_DELETE } from '../actions/timelines';
 import { me } from '../initial_state';
 import { unescapeHTML } from '../utils/html';
+import { uuid } from '../uuid';
 
 const initialState = ImmutableMap({
   mounted: 0,
@@ -252,12 +254,26 @@ const expiresInFromExpiresAt = expires_at => {
 
 const mergeLocalHashtagResults = (suggestions, prefix, tagHistory) => {
   prefix = prefix.toLowerCase();
+
   if (suggestions.length < 4) {
     const localTags = tagHistory.filter(tag => tag.toLowerCase().startsWith(prefix) && !suggestions.some(suggestion => suggestion.type === 'hashtag' && suggestion.name.toLowerCase() === tag.toLowerCase()));
-    return suggestions.concat(localTags.slice(0, 4 - suggestions.length).toJS().map(tag => ({ type: 'hashtag', name: tag })));
-  } else {
-    return suggestions;
+    suggestions = suggestions.concat(localTags.slice(0, 4 - suggestions.length).toJS().map(tag => ({ type: 'hashtag', name: tag })));
   }
+
+  // Prefer capitalization from personal history, unless personal history is all lower-case
+  const fixSuggestionCapitalization = (suggestion) => {
+    if (suggestion.type !== 'hashtag')
+      return suggestion;
+
+    const tagFromHistory = tagHistory.find((tag) => tag.localeCompare(suggestion.name, undefined, { sensitivity: 'accent' }) === 0);
+
+    if (!tagFromHistory || tagFromHistory.toLowerCase() === tagFromHistory)
+      return suggestion;
+
+    return { ...suggestion, name: tagFromHistory };
+  };
+
+  return suggestions.map(fixSuggestionCapitalization);
 };
 
 const normalizeSuggestions = (state, { accounts, emojis, tags, token }) => {
@@ -476,8 +492,13 @@ export default function compose(state = initialState, action) {
       }
 
       if (action.status.get('poll')) {
+        let options = ImmutableList(action.status.get('poll').options.map(x => x.title));
+        if (options.size < action.maxOptions) {
+          options = options.push('');
+        }
+
         map.set('poll', ImmutableMap({
-          options: action.status.getIn(['poll', 'options']).map(x => x.get('title')),
+          options: options,
           multiple: action.status.getIn(['poll', 'multiple']),
           expires_in: expiresInFromExpiresAt(action.status.getIn(['poll', 'expires_at'])),
         }));
@@ -505,8 +526,13 @@ export default function compose(state = initialState, action) {
       }
 
       if (action.status.get('poll')) {
+        let options = ImmutableList(action.status.get('poll').options.map(x => x.title));
+        if (options.size < action.maxOptions) {
+          options = options.push('');
+        }
+
         map.set('poll', ImmutableMap({
-          options: action.status.getIn(['poll', 'options']).map(x => x.get('title')),
+          options: options,
           multiple: action.status.getIn(['poll', 'multiple']),
           expires_in: expiresInFromExpiresAt(action.status.getIn(['poll', 'expires_at'])),
         }));
@@ -526,6 +552,8 @@ export default function compose(state = initialState, action) {
     return state.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
   case COMPOSE_LANGUAGE_CHANGE:
     return state.set('language', action.language);
+  case COMPOSE_FOCUS:
+    return state.set('focusDate', new Date()).update('text', text => text.length > 0 ? text : action.defaultText);
   default:
     return state;
   }

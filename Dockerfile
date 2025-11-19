@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.4
-# This needs to be bullseye-slim because the Ruby image is built on bullseye-slim
-ARG NODE_VERSION="16.18.1-bullseye-slim"
+# This needs to be bookworm-slim because the Ruby image is built on bookworm-slim
+ARG NODE_VERSION="20.6-bookworm-slim"
 
-FROM ghcr.io/moritzheiber/ruby-jemalloc:3.0.6-slim as ruby
+FROM ghcr.io/moritzheiber/ruby-jemalloc:3.2.3-slim as ruby
 FROM node:${NODE_VERSION} as build
 
 COPY --link --from=ruby /opt/ruby /opt/ruby
@@ -19,10 +19,9 @@ COPY Gemfile* package.json yarn.lock /opt/mastodon/
 RUN apt-get update && \
     apt-get -yq dist-upgrade && \
     apt-get install -y --no-install-recommends build-essential \
-        ca-certificates \
         git \
         libicu-dev \
-        libidn11-dev \
+        libidn-dev \
         libpq-dev \
         libjemalloc-dev \
         zlib1g-dev \
@@ -39,9 +38,14 @@ RUN apt-get update && \
     bundle config set --local without 'development test' && \
     bundle config set silence_root_warning true && \
     bundle install -j"$(nproc)" && \
-    yarn install --pure-lockfile --network-timeout 600000
+    yarn install --pure-lockfile --production --network-timeout 600000 && \
+    yarn cache clean
 
 FROM node:${NODE_VERSION}
+
+# Use those args to specify your own version flags & suffixes
+ARG MASTODON_VERSION_PRERELEASE=""
+ARG MASTODON_VERSION_METADATA=""
 
 ARG UID="991"
 ARG GID="991"
@@ -53,7 +57,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND="noninteractive" \
     PATH="${PATH}:/opt/ruby/bin:/opt/mastodon/bin"
 
-# Ignoreing these here since we don't want to pin any versions and the Debian image removes apt-get content after use
+# Add backport repository for some specific packages where we need the latest version
+RUN echo 'deb http://deb.debian.org/debian bookworm-backports main' >> /etc/apt/sources.list
+
+# Ignoring these here since we don't want to pin any versions and the Debian image removes apt-get content after use
 # hadolint ignore=DL3008,DL3009
 RUN apt-get update && \
     echo "Etc/UTC" > /etc/localtime && \
@@ -62,14 +69,15 @@ RUN apt-get update && \
     apt-get -y --no-install-recommends install whois \
         wget \
         procps \
-        libssl1.1 \
+        libssl3 \
         libpq5 \
         imagemagick \
         ffmpeg \
         libjemalloc2 \
-        libicu67 \
-        libidn11 \
+        libicu72 \
+        libidn12 \
         libyaml-0-2 \
+        libheif1/bookworm-backports \
         file \
         ca-certificates \
         tzdata \
@@ -86,15 +94,16 @@ COPY --chown=mastodon:mastodon --from=build /opt/mastodon /opt/mastodon
 ENV RAILS_ENV="production" \
     NODE_ENV="production" \
     RAILS_SERVE_STATIC_FILES="true" \
-    BIND="0.0.0.0"
+    BIND="0.0.0.0" \
+    MASTODON_VERSION_PRERELEASE="${MASTODON_VERSION_PRERELEASE}" \
+    MASTODON_VERSION_METADATA="${MASTODON_VERSION_METADATA}"
 
 # Set the run user
 USER mastodon
 WORKDIR /opt/mastodon
 
 # Precompile assets
-RUN OTP_SECRET=precompile_placeholder SECRET_KEY_BASE=precompile_placeholder rails assets:precompile && \
-    yarn cache clean
+RUN OTP_SECRET=precompile_placeholder SECRET_KEY_BASE=precompile_placeholder rails assets:precompile
 
 # Set the work dir and the container entry point
 ENTRYPOINT ["/usr/bin/tini", "--"]

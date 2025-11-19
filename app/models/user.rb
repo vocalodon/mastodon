@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # == Schema Information
 #
 # Table name: users
@@ -38,10 +39,12 @@
 #  webauthn_id               :string
 #  sign_up_ip                :inet
 #  role_id                   :bigint(8)
+#  settings                  :text
+#  time_zone                 :string
 #
 
 class User < ApplicationRecord
-  self.ignored_columns = %w(
+  self.ignored_columns += %w(
     remember_created_at
     remember_token
     current_sign_in_ip
@@ -50,9 +53,9 @@ class User < ApplicationRecord
     filtered_languages
   )
 
-  include Settings::Extend
   include Redisable
   include LanguagesHelper
+  include HasUserSettings
 
   # The home and list feeds will be stored in Redis for this amount
   # of time, and status fan-out to followers will include only people
@@ -93,8 +96,6 @@ class User < ApplicationRecord
   accepts_nested_attributes_for :invite_request, reject_if: ->(attributes) { attributes['text'].blank? && !Setting.require_invite_text }
   validates :invite_request, presence: true, on: :create, if: :invite_text_required?
 
-  validates :locale, inclusion: I18n.available_locales.map(&:to_s), if: :locale?
-
   validates :email, presence: true, email_address: true
 
   validates_with BlacklistedEmailValidator, if: -> { ENV['EMAIL_DOMAIN_LISTS_APPLY_AFTER_CONFIRMATION'] == 'true' || !confirmed? }
@@ -109,20 +110,24 @@ class User < ApplicationRecord
   validates :confirm_password, absence: true, on: :create
   validate :validate_role_elevation
 
+  scope :account_not_suspended, -> { joins(:account).merge(Account.without_suspended) }
   scope :recent, -> { order(id: :desc) }
   scope :pending, -> { where(approved: false) }
   scope :approved, -> { where(approved: true) }
   scope :confirmed, -> { where.not(confirmed_at: nil) }
   scope :enabled, -> { where(disabled: false) }
   scope :disabled, -> { where(disabled: true) }
-  scope :inactive, -> { where(arel_table[:current_sign_in_at].lt(ACTIVE_DURATION.ago)) }
-  scope :active, -> { confirmed.where(arel_table[:current_sign_in_at].gteq(ACTIVE_DURATION.ago)).joins(:account).where(accounts: { suspended_at: nil }) }
+  scope :active, -> { confirmed.signed_in_recently.account_not_suspended }
+  scope :signed_in_recently, -> { where(current_sign_in_at: ACTIVE_DURATION.ago..) }
+  scope :not_signed_in_recently, -> { where(current_sign_in_at: ...ACTIVE_DURATION.ago) }
   scope :matches_email, ->(value) { where(arel_table[:email].matches("#{value}%")) }
   scope :matches_ip, ->(value) { left_joins(:ips).where('user_ips.ip <<= ?', value).group('users.id') }
   scope :emailable, -> { confirmed.enabled.joins(:account).merge(Account.searchable) }
 
   before_validation :sanitize_languages
   before_validation :sanitize_role
+  before_validation :sanitize_time_zone
+  before_validation :sanitize_locale
   before_create :set_approved
   after_commit :send_pending_devise_notifications
   after_create_commit :trigger_webhooks
@@ -133,13 +138,6 @@ class User < ApplicationRecord
   attribute :otp_secret
 
   has_many :session_activations, dependent: :destroy
-
-  delegate :auto_play_gif, :default_sensitive, :unfollow_modal, :boost_modal, :delete_modal,
-           :reduce_motion, :system_font_ui, :noindex, :theme, :display_media,
-           :expand_spoilers, :default_language, :aggregate_reblogs, :show_application,
-           :advanced_layout, :use_blurhash, :use_pending_items, :trends, :crop_images,
-           :disable_swiping, :always_send_emails,
-           to: :settings, prefix: :setting, allow_nil: false
 
   delegate :can?, to: :role
 
@@ -182,6 +180,10 @@ class User < ApplicationRecord
 
   def disable!
     update!(disabled: true)
+
+    # This terminates all connections for the given account with the streaming
+    # server:
+    redis.publish("timeline:system:#{account.id}", Oj.dump(event: :kill))
   end
 
   def enable!
@@ -308,42 +310,6 @@ class User < ApplicationRecord
     save!
   end
 
-  def prefers_noindex?
-    setting_noindex
-  end
-
-  def preferred_posting_language
-    valid_locale_cascade(settings.default_language, locale, I18n.locale)
-  end
-
-  def setting_default_privacy
-    settings.default_privacy || (account.locked? ? 'private' : 'public')
-  end
-
-  def allows_report_emails?
-    settings.notification_emails['report']
-  end
-
-  def allows_pending_account_emails?
-    settings.notification_emails['pending_account']
-  end
-
-  def allows_appeal_emails?
-    settings.notification_emails['appeal']
-  end
-
-  def allows_trends_review_emails?
-    settings.notification_emails['trending_tag']
-  end
-
-  def aggregates_reblogs?
-    @aggregates_reblogs ||= settings.aggregate_reblogs
-  end
-
-  def shows_application?
-    @shows_application ||= settings.show_application
-  end
-
   def token_for_app(app)
     return nil if app.nil? || app.owner != self
 
@@ -420,25 +386,22 @@ class User < ApplicationRecord
   end
 
   def reset_password!
-    # First, change password to something random and deactivate all sessions
-    transaction do
-      update(password: SecureRandom.hex)
-      session_activations.destroy_all
-    end
-
-    # Then, remove all authorized applications and connected push subscriptions
-    revoke_access!
+    # First, change password to something random, this revokes sessions and on-going access:
+    change_password!(SecureRandom.hex)
 
     # Finally, send a reset password prompt to the user
     send_reset_password_instructions
   end
 
-  def show_all_media?
-    setting_display_media == 'show_all'
-  end
+  def change_password!(new_password)
+    # First, change password to something random and deactivate all sessions
+    transaction do
+      update(password: new_password)
+      session_activations.destroy_all
+    end
 
-  def hide_all_media?
-    setting_display_media == 'hide_all'
+    # Then, remove all authorized applications and connected push subscriptions
+    revoke_access!
   end
 
   protected
@@ -509,13 +472,21 @@ class User < ApplicationRecord
 
   def sanitize_languages
     return if chosen_languages.nil?
-    chosen_languages.reject!(&:blank?)
+
+    chosen_languages.compact_blank!
     self.chosen_languages = nil if chosen_languages.empty?
   end
 
   def sanitize_role
-    return if role.nil?
-    self.role = nil if role.everyone?
+    self.role = nil if role.present? && role.everyone?
+  end
+
+  def sanitize_time_zone
+    self.time_zone = nil if time_zone.present? && ActiveSupport::TimeZone[time_zone].nil?
+  end
+
+  def sanitize_locale
+    self.locale = nil if locale.present? && I18n.available_locales.exclude?(locale.to_sym)
   end
 
   def prepare_new_user!
@@ -536,7 +507,8 @@ class User < ApplicationRecord
   def notify_staff_about_pending_account!
     User.those_who_can(:manage_users).includes(:account).find_each do |u|
       next unless u.allows_pending_account_emails?
-      AdminMailer.new_pending_account(u.account, self).deliver_later
+
+      AdminMailer.with(recipient: u.account).new_pending_account(self).deliver_later
     end
   end
 

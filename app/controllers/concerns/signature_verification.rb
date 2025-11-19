@@ -128,6 +128,8 @@ module SignatureVerification
   private
 
   def fail_with!(message, **options)
+    Rails.logger.debug { "Signature verification failed: #{message}" }
+
     @signature_verification_failure_reason = { error: message }.merge(options)
     @signed_request_actor = nil
   end
@@ -147,12 +149,12 @@ module SignatureVerification
   end
 
   def signed_headers
-    signature_params.fetch('headers', signature_algorithm == 'hs2019' ? '(created)' : 'date').downcase.split(' ')
+    signature_params.fetch('headers', signature_algorithm == 'hs2019' ? '(created)' : 'date').downcase.split
   end
 
   def verify_signature_strength!
     raise SignatureVerificationError, 'Mastodon requires the Date header or (created) pseudo-header to be signed' unless signed_headers.include?('date') || signed_headers.include?('(created)')
-    raise SignatureVerificationError, 'Mastodon requires the Digest header or (request-target) pseudo-header to be signed' unless signed_headers.include?(Request::REQUEST_TARGET) || signed_headers.include?('digest')
+    raise SignatureVerificationError, 'Mastodon requires the Digest header or (request-target) pseudo-header to be signed' unless signed_headers.include?(HttpSignatureDraft::REQUEST_TARGET) || signed_headers.include?('digest')
     raise SignatureVerificationError, 'Mastodon requires the Host header to be signed when doing a GET request' if request.get? && !signed_headers.include?('host')
     raise SignatureVerificationError, 'Mastodon requires the Digest header to be signed when doing a POST request' if request.post? && !signed_headers.include?('digest')
   end
@@ -174,6 +176,7 @@ module SignatureVerification
     end
 
     raise SignatureVerificationError, "Invalid Digest value. The provided Digest value is not a SHA-256 digest. Given digest: #{sha256[1]}" if digest_size != 32
+
     raise SignatureVerificationError, "Invalid Digest value. Computed SHA-256 digest: #{body_digest}; given: #{sha256[1]}"
   end
 
@@ -189,14 +192,14 @@ module SignatureVerification
   def build_signed_string(include_query_string: true)
     signed_headers.map do |signed_header|
       case signed_header
-      when Request::REQUEST_TARGET
+      when HttpSignatureDraft::REQUEST_TARGET
         if include_query_string
-          "#{Request::REQUEST_TARGET}: #{request.method.downcase} #{request.original_fullpath}"
+          "#{HttpSignatureDraft::REQUEST_TARGET}: #{request.method.downcase} #{request.original_fullpath}"
         else
           # Current versions of Mastodon incorrectly omit the query string from the (request-target) pseudo-header.
           # Therefore, temporarily support such incorrect signatures for compatibility.
           # TODO: remove eventually some time after release of the fixed version
-          "#{Request::REQUEST_TARGET}: #{request.method.downcase} #{request.path}"
+          "#{HttpSignatureDraft::REQUEST_TARGET}: #{request.method.downcase} #{request.path}"
         end
       when '(created)'
         raise SignatureVerificationError, 'Invalid pseudo-header (created) for rsa-sha256' unless signature_algorithm == 'hs2019'
@@ -260,7 +263,7 @@ module SignatureVerification
     end
 
     if key_id.start_with?('acct:')
-      stoplight_wrap_request { ResolveAccountService.new.call(key_id.gsub(/\Aacct:/, ''), suppress_errors: false) }
+      stoplight_wrap_request { ResolveAccountService.new.call(key_id.delete_prefix('acct:'), suppress_errors: false) }
     elsif !ActivityPub::TagManager.instance.local_uri?(key_id)
       account   = ActivityPub::TagManager.instance.uri_to_actor(key_id)
       account ||= stoplight_wrap_request { ActivityPub::FetchRemoteKeyService.new.call(key_id, suppress_errors: false) }

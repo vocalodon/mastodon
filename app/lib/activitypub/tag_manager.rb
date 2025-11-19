@@ -4,6 +4,7 @@ require 'singleton'
 
 class ActivityPub::TagManager
   include Singleton
+  include JsonLdHelper
   include RoutingHelper
 
   CONTEXT = 'https://www.w3.org/ns/activitystreams'
@@ -17,7 +18,7 @@ class ActivityPub::TagManager
   end
 
   def url_for(target)
-    return target.url if target.respond_to?(:local?) && !target.local?
+    return unsupported_uri_scheme?(target.url) ? nil : target.url if target.respond_to?(:local?) && !target.local?
 
     return unless target.respond_to?(:object_type)
 
@@ -26,6 +27,7 @@ class ActivityPub::TagManager
       target.instance_actor? ? about_more_url(instance_actor: true) : short_account_url(target)
     when :note, :comment, :activity
       return activity_account_status_url(target.account, target) if target.reblog?
+
       short_account_status_url(target.account, target)
     when :flag
       target.uri
@@ -40,6 +42,7 @@ class ActivityPub::TagManager
       target.instance_actor? ? instance_actor_url : account_url(target)
     when :note, :comment, :activity
       return activity_account_status_url(target.account, target) if target.reblog?
+
       account_status_url(target.account, target)
     when :emoji
       emoji_url(target)

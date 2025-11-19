@@ -68,10 +68,10 @@ class REST::InstanceSerializer < ActiveModel::Serializer
       },
 
       polls: {
-        max_options: PollValidator::MAX_OPTIONS,
-        max_characters_per_option: PollValidator::MAX_OPTION_CHARS,
-        min_expiration: PollValidator::MIN_EXPIRATION,
-        max_expiration: PollValidator::MAX_EXPIRATION,
+        max_options: PollOptionsValidator::MAX_OPTIONS,
+        max_characters_per_option: PollOptionsValidator::MAX_OPTION_CHARS,
+        min_expiration: PollExpirationValidator::MIN_EXPIRATION,
+        max_expiration: PollExpirationValidator::MAX_EXPIRATION,
       },
 
       translation: {
@@ -85,6 +85,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
       enabled: registrations_enabled?,
       approval_required: Setting.registrations_mode == 'approved',
       message: registrations_enabled? ? nil : registrations_message,
+      url: ENV.fetch('SSO_ACCOUNT_SIGN_UP', nil),
     }
   end
 
@@ -95,9 +96,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
   end
 
   def registrations_message
-    if Setting.closed_registrations_message.present?
-      markdown.render(Setting.closed_registrations_message)
-    end
+    markdown.render(Setting.closed_registrations_message) if Setting.closed_registrations_message.present?
   end
 
   def markdown

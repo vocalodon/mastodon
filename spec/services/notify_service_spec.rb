@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe NotifyService, type: :service do
@@ -14,6 +16,17 @@ RSpec.describe NotifyService, type: :service do
   it 'does not notify when sender is blocked' do
     recipient.block!(sender)
     expect { subject }.to_not change(Notification, :count)
+  end
+
+  context 'when the sender is a local moderator' do
+    let(:sender) { Fabricate(:user, role: UserRole.find_by(name: 'Admin')).account }
+    let(:type) { :mention }
+    let(:activity) { Fabricate(:mention, account: recipient, status: Fabricate(:status, account: sender)) }
+
+    it 'does notify when the sender is blocked' do
+      recipient.block!(sender)
+      expect { subject }.to change(Notification, :count).by(1)
+    end
   end
 
   it 'does not notify when sender is muted with hide_notifications' do
@@ -47,22 +60,23 @@ RSpec.describe NotifyService, type: :service do
     expect { subject }.to_not change(Notification, :count)
   end
 
-  context 'for direct messages' do
+  context 'with direct messages' do
     let(:activity) { Fabricate(:mention, account: recipient, status: Fabricate(:status, account: sender, visibility: :direct)) }
     let(:type)     { :mention }
 
     before do
-      user.settings.interactions = user.settings.interactions.merge('must_be_following_dm' => enabled)
+      user.settings.update('interactions.must_be_following_dm': enabled)
+      user.save
     end
 
-    context 'if recipient is supposed to be following sender' do
+    context 'when recipient is supposed to be following sender' do
       let(:enabled) { true }
 
       it 'does not notify' do
         expect { subject }.to_not change(Notification, :count)
       end
 
-      context 'if the message chain is initiated by recipient, but is not direct message' do
+      context 'when the message chain is initiated by recipient, but is not direct message' do
         let(:reply_to) { Fabricate(:status, account: recipient) }
         let!(:mention) { Fabricate(:mention, account: sender, status: reply_to) }
         let(:activity) { Fabricate(:mention, account: recipient, status: Fabricate(:status, account: sender, visibility: :direct, thread: reply_to)) }
@@ -83,7 +97,7 @@ RSpec.describe NotifyService, type: :service do
         end
       end
 
-      context 'if the message chain is initiated by the recipient with a mention to the sender' do
+      context 'when the message chain is initiated by the recipient with a mention to the sender' do
         let(:reply_to) { Fabricate(:status, account: recipient, visibility: :direct) }
         let!(:mention) { Fabricate(:mention, account: sender, status: reply_to) }
         let(:activity) { Fabricate(:mention, account: recipient, status: Fabricate(:status, account: sender, visibility: :direct, thread: reply_to)) }
@@ -94,7 +108,7 @@ RSpec.describe NotifyService, type: :service do
       end
     end
 
-    context 'if recipient is NOT supposed to be following sender' do
+    context 'when recipient is NOT supposed to be following sender' do
       let(:enabled) { false }
 
       it 'does notify' do
@@ -124,7 +138,7 @@ RSpec.describe NotifyService, type: :service do
     end
   end
 
-  context do
+  context 'with muted and blocked users' do
     let(:asshole)  { Fabricate(:account, username: 'asshole') }
     let(:reply_to) { Fabricate(:status, account: asshole) }
     let(:activity) { Fabricate(:mention, account: recipient, status: Fabricate(:status, account: sender, thread: reply_to)) }
@@ -141,7 +155,7 @@ RSpec.describe NotifyService, type: :service do
     end
   end
 
-  context do
+  context 'with sender as recipient' do
     let(:sender) { recipient }
 
     it 'does not notify when recipient is the sender' do
@@ -153,8 +167,8 @@ RSpec.describe NotifyService, type: :service do
     before do
       ActionMailer::Base.deliveries.clear
 
-      notification_emails = user.settings.notification_emails
-      user.settings.notification_emails = notification_emails.merge('follow' => enabled)
+      user.settings.update('notification_emails.follow': enabled)
+      user.save
     end
 
     context 'when email notification is enabled' do
