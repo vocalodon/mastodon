@@ -4,7 +4,7 @@ require 'rails_helper'
 require 'securerandom'
 
 describe Request do
-  subject { Request.new(:get, 'http://example.com') }
+  subject { described_class.new(:get, 'http://example.com') }
 
   describe '#headers' do
     it 'returns user agent' do
@@ -43,35 +43,57 @@ describe Request do
       before { stub_request(:get, 'http://example.com') }
 
       it 'executes a HTTP request' do
-        expect { |block| subject.perform &block }.to yield_control
+        expect { |block| subject.perform(&block) }.to yield_control
         expect(a_request(:get, 'http://example.com')).to have_been_made.once
       end
 
       it 'executes a HTTP request when the first address is private' do
-        resolver = double
+        resolver = instance_double(Resolv::DNS)
 
         allow(resolver).to receive(:getaddresses).with('example.com').and_return(%w(0.0.0.0 2001:4860:4860::8844))
         allow(resolver).to receive(:timeouts=).and_return(nil)
         allow(Resolv::DNS).to receive(:open).and_yield(resolver)
 
-        expect { |block| subject.perform &block }.to yield_control
+        expect { |block| subject.perform(&block) }.to yield_control
         expect(a_request(:get, 'http://example.com')).to have_been_made.once
       end
 
-      it 'sets headers' do
-        expect { |block| subject.perform &block }.to yield_control
-        expect(a_request(:get, 'http://example.com').with(headers: subject.headers)).to have_been_made
-      end
+      it 'makes a request with expected headers, yields, and closes the underlying connection' do
+        allow(subject.send(:http_client)).to receive(:close)
 
-      it 'closes underlying connection' do
-        expect_any_instance_of(HTTP::Client).to receive(:close)
-        expect { |block| subject.perform &block }.to yield_control
+        expect { |block| subject.perform(&block) }.to yield_control
+
+        expect(a_request(:get, 'http://example.com').with(headers: subject.headers)).to have_been_made
+        expect(subject.send(:http_client)).to have_received(:close)
       end
 
       it 'returns response which implements body_with_limit' do
         subject.perform do |response|
           expect(response).to respond_to :body_with_limit
         end
+      end
+    end
+
+    context 'with a redirect and HTTP signatures' do
+      let(:account) { Fabricate(:account) }
+
+      before do
+        stub_request(:get, 'http://example.com').to_return(status: 301, headers: { Location: 'http://redirected.example.com/foo' })
+        stub_request(:get, 'http://redirected.example.com/foo').to_return(body: 'lorem ipsum')
+      end
+
+      it 'makes a request with expected headers and follows redirects' do
+        expect { |block| subject.on_behalf_of(account).perform(&block) }.to yield_control
+
+        # request.headers includes the `Signature` sent for the first request
+        expect(a_request(:get, 'http://example.com').with(headers: subject.headers)).to have_been_made.once
+
+        # request.headers includes the `Signature`, but it has changed
+        expect(a_request(:get, 'http://redirected.example.com/foo').with(headers: subject.headers.merge({ 'Host' => 'redirected.example.com' }))).to_not have_been_made
+
+        # `with(headers: )` matching tests for inclusion, so strip `Signature`
+        # This doesn't actually test that there is a signature, but it tests that the original signature is not passed
+        expect(a_request(:get, 'http://redirected.example.com/foo').with(headers: subject.headers.without('Signature').merge({ 'Host' => 'redirected.example.com' }))).to have_been_made.once
       end
     end
 
@@ -83,7 +105,7 @@ describe Request do
       end
 
       it 'raises Mastodon::ValidationError' do
-        resolver = double
+        resolver = instance_double(Resolv::DNS)
 
         allow(resolver).to receive(:getaddresses).with('example.com').and_return(%w(0.0.0.0 2001:db8::face))
         allow(resolver).to receive(:timeouts=).and_return(nil)
@@ -97,12 +119,12 @@ describe Request do
   describe "response's body_with_limit method" do
     it 'rejects body more than 1 megabyte by default' do
       stub_request(:any, 'http://example.com').to_return(body: SecureRandom.random_bytes(2.megabytes))
-      expect { subject.perform { |response| response.body_with_limit } }.to raise_error Mastodon::LengthValidationError
+      expect { subject.perform(&:body_with_limit) }.to raise_error Mastodon::LengthValidationError
     end
 
     it 'accepts body less than 1 megabyte by default' do
       stub_request(:any, 'http://example.com').to_return(body: SecureRandom.random_bytes(2.kilobytes))
-      expect { subject.perform { |response| response.body_with_limit } }.not_to raise_error
+      expect { subject.perform(&:body_with_limit) }.to_not raise_error
     end
 
     it 'rejects body by given size' do
@@ -112,12 +134,12 @@ describe Request do
 
     it 'rejects too large chunked body' do
       stub_request(:any, 'http://example.com').to_return(body: SecureRandom.random_bytes(2.megabytes), headers: { 'Transfer-Encoding' => 'chunked' })
-      expect { subject.perform { |response| response.body_with_limit } }.to raise_error Mastodon::LengthValidationError
+      expect { subject.perform(&:body_with_limit) }.to raise_error Mastodon::LengthValidationError
     end
 
     it 'rejects too large monolithic body' do
       stub_request(:any, 'http://example.com').to_return(body: SecureRandom.random_bytes(2.megabytes), headers: { 'Content-Length' => 2.megabytes })
-      expect { subject.perform { |response| response.body_with_limit } }.to raise_error Mastodon::LengthValidationError
+      expect { subject.perform(&:body_with_limit) }.to raise_error Mastodon::LengthValidationError
     end
 
     it 'truncates large monolithic body' do

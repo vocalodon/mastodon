@@ -6,13 +6,14 @@ class Api::BaseController < ApplicationController
 
   include RateLimitHeaders
   include AccessTokenTrackingConcern
+  include ApiCachingConcern
 
-  skip_before_action :store_current_location
-  skip_before_action :require_functional!, unless: :whitelist_mode?
+  skip_before_action :require_functional!, unless: :limited_federation_mode?
 
   before_action :require_authenticated_user!, if: :disallow_unauthenticated_api_access?
   before_action :require_not_suspended!
-  before_action :set_cache_headers
+
+  vary_by 'Authorization'
 
   protect_from_forgery with: :null_session
 
@@ -140,6 +141,13 @@ class Api::BaseController < ApplicationController
     end
   end
 
+  # Redefine `require_functional!` to properly output JSON instead of HTML redirects
+  def require_functional!
+    return if current_user.functional?
+
+    require_user!
+  end
+
   def render_empty
     render json: {}, status: 200
   end
@@ -148,12 +156,8 @@ class Api::BaseController < ApplicationController
     doorkeeper_authorize!(*scopes) if doorkeeper_token
   end
 
-  def set_cache_headers
-    response.headers['Cache-Control'] = 'private, no-store'
-  end
-
   def disallow_unauthenticated_api_access?
-    ENV['DISALLOW_UNAUTHENTICATED_API_ACCESS'] == 'true' || Rails.configuration.x.whitelist_mode
+    ENV['DISALLOW_UNAUTHENTICATED_API_ACCESS'] == 'true' || Rails.configuration.x.limited_federation_mode
   end
 
   private

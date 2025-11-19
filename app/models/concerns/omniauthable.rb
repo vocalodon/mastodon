@@ -4,7 +4,7 @@ module Omniauthable
   extend ActiveSupport::Concern
 
   TEMP_EMAIL_PREFIX = 'change@me'
-  TEMP_EMAIL_REGEX  = /\A#{TEMP_EMAIL_PREFIX}/.freeze
+  TEMP_EMAIL_REGEX  = /\A#{TEMP_EMAIL_PREFIX}/
 
   included do
     devise :omniauthable
@@ -73,14 +73,12 @@ module Omniauthable
       user = User.new(user_params_from_auth(email, auth))
 
       begin
-        if /\A#{URI::DEFAULT_PARSER.make_regexp(%w(http https))}\z/.match?(auth.info.image)
-          user.account.avatar_remote_url = auth.info.image
-        end
+        user.account.avatar_remote_url = auth.info.image if /\A#{URI::DEFAULT_PARSER.make_regexp(%w(http https))}\z/.match?(auth.info.image)
       rescue Mastodon::UnexpectedResponseError
         user.account.avatar_remote_url = nil
       end
 
-      user.skip_confirmation! if email_is_verified
+      user.confirm! if email_is_verified
       user.save!
       user
     end
@@ -101,7 +99,7 @@ module Omniauthable
         external: true,
         account_attributes: {
           username: ensure_unique_username(ensure_valid_username(auth.uid)),
-          display_name: auth.info.full_name || auth.info.name || [auth.info.first_name, auth.info.last_name].join(' '),
+          display_name: display_name_from_auth(auth),
         },
       }
     end
@@ -122,6 +120,11 @@ module Omniauthable
       starting_username = starting_username.split('@')[0]
       temp_username = starting_username.gsub(/[^a-z0-9_]+/i, '')
       temp_username.truncate(30, omission: '')
+    end
+
+    def display_name_from_auth(auth)
+      display_name = auth.info.full_name || auth.info.name || [auth.info.first_name, auth.info.last_name].join(' ')
+      display_name.truncate(Account::DISPLAY_NAME_LENGTH_LIMIT, omission: '')
     end
   end
 end

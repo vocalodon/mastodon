@@ -1,6 +1,3 @@
-- content_for :header_tags do
-  = javascript_pack_tag 'admin', async: true, crossorigin: 'anonymous'
-
 - content_for :page_title do
   = t('statuses.title', name: display_name(@account), quote: truncate(@status.spoiler_text.presence || @status.text, length: 50, omission: '…', escape: false))
 
@@ -18,7 +15,7 @@
       - if @status.reply?
         %tr
           %th= t('admin.statuses.in_reply_to')
-          %td= admin_account_link_to @status.in_reply_to_account, path: admin_account_status_path(@status.thread.account_id, @status.in_reply_to_id)
+          %td= admin_account_link_to @status.in_reply_to_account, path: @status.thread.present? ? admin_account_status_path(@status.thread.account_id, @status.in_reply_to_id) : nil
       %tr
         %th= t('admin.statuses.application')
         %td= @status.application&.name
