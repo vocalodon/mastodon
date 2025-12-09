@@ -10,6 +10,8 @@ import { List as ImmutableList } from 'immutable';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { connect } from 'react-redux';
 
+import ChevronRightIcon from '@/material-icons/400-24px/chevron_right.svg?react';
+import ExpandMoreIcon from '@/material-icons/400-24px/expand_more.svg?react';
 import { fetchServer, fetchExtendedDescription, fetchDomainBlocks  } from 'mastodon/actions/server';
 import Column from 'mastodon/components/column';
 import { Icon  }  from 'mastodon/components/icon';
@@ -61,7 +63,7 @@ class Section extends PureComponent {
     return (
       <div className={classNames('about__section', { active: !collapsed })}>
         <div className='about__section__title' role='button' tabIndex={0} onClick={this.handleClick}>
-          <Icon id={collapsed ? 'chevron-right' : 'chevron-down'} fixedWidth /> {title}
+          <Icon id={collapsed ? 'chevron-right' : 'chevron-down'} icon={collapsed ? ChevronRightIcon : ExpandMoreIcon} /> {title}
         </div>
 
         {!collapsed && (
@@ -135,7 +137,8 @@ class About extends PureComponent {
               <ol className='rules-list'>
                 {server.get('rules').map(rule => (
                   <li key={rule.get('id')}>
-                    <span className='rules-list__text'>{rule.get('text')}</span>
+                    <div className='rules-list__text'>{rule.get('text')}</div>
+                    {rule.get('hint').length > 0 && (<div className='rules-list__hint'>{rule.get('hint')}</div>)}
                   </li>
                 ))}
               </ol>

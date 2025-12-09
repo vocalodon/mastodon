@@ -10,9 +10,7 @@ class StatusesController < ApplicationController
 
   before_action :require_account_signature!, only: [:show, :activity], if: -> { request.format == :json && authorized_fetch_mode? }
   before_action :set_status
-  before_action :set_instance_presenter
   before_action :redirect_to_original, only: :show
-  before_action :set_body_classes, only: :embed
 
   after_action :set_link_headers
 
@@ -52,23 +50,17 @@ class StatusesController < ApplicationController
 
   private
 
-  def set_body_classes
-    @body_classes = 'with-modals'
-  end
-
   def set_link_headers
-    response.headers['Link'] = LinkHeader.new([[ActivityPub::TagManager.instance.uri_for(@status), [%w(rel alternate), %w(type application/activity+json)]]])
+    response.headers['Link'] = LinkHeader.new(
+      [[ActivityPub::TagManager.instance.uri_for(@status), [%w(rel alternate), %w(type application/activity+json)]]]
+    ).to_s
   end
 
   def set_status
     @status = @account.statuses.find(params[:id])
     authorize @status, :show?
-  rescue Mastodon::NotPermittedError
+  rescue ActiveRecord::RecordNotFound, Mastodon::NotPermittedError
     not_found
-  end
-
-  def set_instance_presenter
-    @instance_presenter = InstancePresenter.new
   end
 
   def redirect_to_original

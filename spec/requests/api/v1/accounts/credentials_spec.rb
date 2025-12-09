@@ -15,16 +15,14 @@ RSpec.describe 'credentials API' do
 
     it_behaves_like 'forbidden for wrong scope', 'write write:accounts'
 
-    it 'returns http success' do
+    it 'returns http success with expected content' do
       subject
 
-      expect(response).to have_http_status(200)
-    end
-
-    it 'returns the expected content' do
-      subject
-
-      expect(body_as_json).to include({
+      expect(response)
+        .to have_http_status(200)
+      expect(response.content_type)
+        .to start_with('application/json')
+      expect(response.parsed_body).to include({
         source: hash_including({
           discoverable: false,
           indexable: false,
@@ -32,15 +30,27 @@ RSpec.describe 'credentials API' do
         locked: true,
       })
     end
+
+    describe 'allows the profile scope' do
+      let(:scopes) { 'profile' }
+
+      it 'returns the response successfully' do
+        subject
+
+        expect(response).to have_http_status(200)
+        expect(response.content_type)
+          .to start_with('application/json')
+
+        expect(response.parsed_body).to include({
+          locked: true,
+        })
+      end
+    end
   end
 
-  describe 'POST /api/v1/accounts/update_credentials' do
+  describe 'PATCH /api/v1/accounts/update_credentials' do
     subject do
       patch '/api/v1/accounts/update_credentials', headers: headers, params: params
-    end
-
-    before do
-      allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_in)
     end
 
     let(:params) do
@@ -61,16 +71,37 @@ RSpec.describe 'credentials API' do
 
     it_behaves_like 'forbidden for wrong scope', 'read read:accounts'
 
-    it 'returns http success' do
-      subject
+    describe 'with empty source list' do
+      let(:params) { { display_name: "I'm a cat", source: {} } }
 
-      expect(response).to have_http_status(200)
+      it 'returns http success' do
+        subject
+        expect(response).to have_http_status(200)
+        expect(response.content_type)
+          .to start_with('application/json')
+      end
     end
 
-    it 'returns JSON with updated attributes' do
+    describe 'with invalid data' do
+      let(:params) { { note: 'This is too long. ' * 30 } }
+
+      it 'returns http unprocessable entity' do
+        subject
+        expect(response).to have_http_status(422)
+        expect(response.content_type)
+          .to start_with('application/json')
+      end
+    end
+
+    it 'returns http success with updated JSON attributes' do
       subject
 
-      expect(body_as_json).to include({
+      expect(response)
+        .to have_http_status(200)
+      expect(response.content_type)
+        .to start_with('application/json')
+
+      expect(response.parsed_body).to include({
         source: hash_including({
           discoverable: true,
           indexable: true,
@@ -79,7 +110,7 @@ RSpec.describe 'credentials API' do
       })
 
       expect(ActivityPub::UpdateDistributionWorker)
-        .to have_received(:perform_in).with(anything, user.account_id)
+        .to have_enqueued_sidekiq_job(user.account_id)
     end
 
     def expect_account_updates

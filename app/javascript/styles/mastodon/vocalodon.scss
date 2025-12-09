@@ -1,22 +1,23 @@
-.additional-info{
-  padding:6px;
-  font-size:13px;
+.additional-info {
+  padding: 6px;
+  font-size: 13px;
+  overflow: auto;
 
-  h2{
-    font-size:16px;
-    font-weight:bold;
-    margin-top:10px;
-    margin-bottom:7px;
+  h2 {
+    font-size: 16px;
+    font-weight: bold;
+    margin-top: 10px;
+    margin-bottom: 7px;
   }
 
-  h3{
-    font-size:14px;
-    font-weight:bold;
-    margin:5px 0;
+  h3 {
+    font-size: 14px;
+    font-weight: bold;
+    margin: 5px 0;
   }
 
-  a{
-    color:#9baec8;
+  a {
+    color: #9baec8;
     text-decoration: none;
   }
 
@@ -29,24 +30,25 @@
     line-height: 130%;
   }
 
-  li{
-    padding-left:5px;
+  li {
+    padding-left: 5px;
+
     ul {
-      padding-left:5px; 
+      padding-left: 5px;
     }
   }
 }
 
 .display-name__html {
-    font-weight: bold;
+  font-weight: bold;
 }
 
 .landing-page .header .links .brand img {
-    height: 70px;
+  height: 70px;
 }
 
 .landing-page .header .hero .heading {
-    padding-bottom: 180px;
+  padding-bottom: 180px;
 }
 
 .landing-page ul {
@@ -56,10 +58,9 @@
 }
 
 .logo-container h1 img {
-    height: 90px;
+  height: 90px;
 }
 
 .compose-panel .compose-form {
-  flex: 0;
+  min-height: auto;
 }
-

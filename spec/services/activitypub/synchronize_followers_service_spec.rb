@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe ActivityPub::SynchronizeFollowersService, type: :service do
+RSpec.describe ActivityPub::SynchronizeFollowersService do
   subject { described_class.new }
 
   let(:actor)          { Fabricate(:account, domain: 'example.com', uri: 'http://example.com/account', inbox_url: 'http://example.com/inbox') }
@@ -13,11 +13,9 @@ RSpec.describe ActivityPub::SynchronizeFollowersService, type: :service do
   let(:collection_uri) { 'https://example.com/partial-followers' }
 
   let(:items) do
-    [
-      ActivityPub::TagManager.instance.uri_for(alice),
-      ActivityPub::TagManager.instance.uri_for(eve),
-      ActivityPub::TagManager.instance.uri_for(mallory),
-    ]
+    [alice, eve, mallory].map do |account|
+      ActivityPub::TagManager.instance.uri_for(account)
+    end
   end
 
   let(:payload) do
@@ -27,13 +25,6 @@ RSpec.describe ActivityPub::SynchronizeFollowersService, type: :service do
       id: collection_uri,
       items: items,
     }.with_indifferent_access
-  end
-
-  around do |example|
-    Sidekiq::Testing.fake! do
-      example.run
-      Sidekiq::Worker.clear_all
-    end
   end
 
   before do

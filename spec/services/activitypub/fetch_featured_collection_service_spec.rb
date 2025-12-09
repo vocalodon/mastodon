@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe ActivityPub::FetchFeaturedCollectionService, type: :service do
+RSpec.describe ActivityPub::FetchFeaturedCollectionService do
   subject { described_class.new }
 
   let(:actor) { Fabricate(:account, domain: 'example.com', uri: 'https://example.com/account', featured_collection_url: 'https://example.com/account/pinned') }
@@ -68,26 +68,6 @@ RSpec.describe ActivityPub::FetchFeaturedCollectionService, type: :service do
       id: actor.featured_collection_url,
       items: items,
     }.deep_stringify_keys
-  end
-
-  shared_examples 'sets pinned posts' do
-    before do
-      stub_request(:get, 'https://example.com/account/pinned/known').to_return(status: 200, body: Oj.dump(status_json_pinned_known), headers: { 'Content-Type': 'application/activity+json' })
-      stub_request(:get, 'https://example.com/account/pinned/unknown-inlined').to_return(status: 200, body: Oj.dump(status_json_pinned_unknown_inlined), headers: { 'Content-Type': 'application/activity+json' })
-      stub_request(:get, 'https://example.com/account/pinned/unknown-unreachable').to_return(status: 404)
-      stub_request(:get, 'https://example.com/account/pinned/unknown-reachable').to_return(status: 200, body: Oj.dump(status_json_pinned_unknown_reachable), headers: { 'Content-Type': 'application/activity+json' })
-      stub_request(:get, 'https://example.com/account/collections/featured').to_return(status: 200, body: Oj.dump(featured_with_null), headers: { 'Content-Type': 'application/activity+json' })
-
-      subject.call(actor, note: true, hashtag: false)
-    end
-
-    it 'sets expected posts as pinned posts' do
-      expect(actor.pinned_statuses.pluck(:uri)).to contain_exactly(
-        'https://example.com/account/pinned/known',
-        'https://example.com/account/pinned/unknown-inlined',
-        'https://example.com/account/pinned/unknown-reachable'
-      )
-    end
   end
 
   describe '#call' do
