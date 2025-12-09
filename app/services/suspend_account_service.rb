@@ -15,6 +15,7 @@ class SuspendAccountService < BaseService
     unmerge_from_home_timelines!
     unmerge_from_list_timelines!
     privatize_media_attachments!
+    remove_from_trends!
   end
 
   private
@@ -65,7 +66,7 @@ class SuspendAccountService < BaseService
   def privatize_media_attachments!
     attachment_names = MediaAttachment.attachment_definitions.keys
 
-    @account.media_attachments.reorder(nil).find_each do |media_attachment|
+    @account.media_attachments.find_each do |media_attachment|
       attachment_names.each do |attachment_name|
         attachment = media_attachment.public_send(attachment_name)
         styles     = MediaAttachment::DEFAULT_STYLES | attachment.styles.keys
@@ -99,6 +100,10 @@ class SuspendAccountService < BaseService
         end
       end
     end
+  end
+
+  def remove_from_trends!
+    StatusTrend.where(account: @account).delete_all
   end
 
   def signed_activity_json

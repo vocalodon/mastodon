@@ -6,7 +6,7 @@ if ENV['REDIS_NAMESPACE']
   warn <<~MESSAGE
     WARNING: the REDIS_NAMESPACE environment variable is deprecated and will be removed in Mastodon 4.4.0.
 
-    Please update to Mastodon 4.3 and see documentation at https://github.com/mastodon/redis_namespace_migration
+    Please see documentation at https://github.com/mastodon/redis_namespace_migration
   MESSAGE
 
   warn <<~MESSAGE if es_configured && !ENV['ES_PREFIX']

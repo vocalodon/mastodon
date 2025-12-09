@@ -1,9 +1,7 @@
 # frozen_string_literal: true
 
 class ActivityPub::RepliesController < ActivityPub::BaseController
-  include SignatureVerification
   include Authorization
-  include AccountOwnedConcern
 
   DESCENDANTS_LIMIT = 60
 
@@ -27,13 +25,13 @@ class ActivityPub::RepliesController < ActivityPub::BaseController
   def set_status
     @status = @account.statuses.find(params[:status_id])
     authorize @status, :show?
-  rescue Mastodon::NotPermittedError
+  rescue ActiveRecord::RecordNotFound, Mastodon::NotPermittedError
     not_found
   end
 
   def set_replies
     @replies = only_other_accounts? ? Status.where.not(account_id: @account.id).joins(:account).merge(Account.without_suspended) : @account.statuses
-    @replies = @replies.where(in_reply_to_id: @status.id, visibility: [:public, :unlisted])
+    @replies = @replies.distributable_visibility.where(in_reply_to_id: @status.id)
     @replies = @replies.paginate_by_min_id(DESCENDANTS_LIMIT, params[:min_id])
   end
 
