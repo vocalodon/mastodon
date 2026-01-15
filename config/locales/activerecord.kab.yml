@@ -15,8 +15,6 @@ kab:
       user/invite_request:
         text: Taɣzent
     errors:
-      messages:
-        too_many_lines: iɛedda talast n %{limit} n yizirigen
       models:
         account:
           attributes:
@@ -41,6 +39,8 @@ kab:
               taken: n iddaden yellan yakan
         user:
           attributes:
+            date_of_birth:
+              below_limit: ddaw n talast n leɛmeṛ
             email:
               blocked: isseqdac asaǧǧaw n yimayl ur yettusirgen ara
               unreachable: ur d-ttban ara d akken yella
