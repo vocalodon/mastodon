@@ -19,7 +19,7 @@ module CacheConcern
   # from being used as cache keys, while allowing to `Vary` on them (to not serve
   # anonymous cached data to authenticated requests when authentication matters)
   def enforce_cache_control!
-    vary = response.headers['Vary']&.split&.map { |x| x.strip.downcase }
+    vary = response.headers['Vary'].to_s.split(',').map { |x| x.strip.downcase }.reject(&:empty?)
     return unless vary.present? && %w(cookie authorization signature).any? { |header| vary.include?(header) && request.headers[header].present? }
 
     response.cache_control.replace(private: true, no_store: true)
@@ -28,7 +28,7 @@ module CacheConcern
   def render_with_cache(**options)
     raise ArgumentError, 'Only JSON render calls are supported' unless options.key?(:json) || block_given?
 
-    key        = options.delete(:key) || [[params[:controller], params[:action]].join('/'), options[:json].respond_to?(:cache_key) ? options[:json].cache_key : nil, options[:fields].nil? ? nil : options[:fields].join(',')].compact.join(':')
+    key        = options.delete(:key) || [[params[:controller], params[:action]].join('/'), options[:json].respond_to?(:cache_key) ? options[:json].cache_key : nil, options[:fields]&.join(',')].compact.join(':')
     expires_in = options.delete(:expires_in) || 3.minutes
     body       = Rails.cache.read(key, raw: true)
 

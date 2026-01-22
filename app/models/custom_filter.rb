@@ -5,13 +5,13 @@
 # Table name: custom_filters
 #
 #  id         :bigint(8)        not null, primary key
-#  account_id :bigint(8)
+#  action     :integer          default("warn"), not null
+#  context    :string           default([]), not null, is an Array
 #  expires_at :datetime
 #  phrase     :text             default(""), not null
-#  context    :string           default([]), not null, is an Array
 #  created_at :datetime         not null
 #  updated_at :datetime         not null
-#  action     :integer          default("warn"), not null
+#  account_id :bigint(8)        not null
 #
 
 class CustomFilter < ApplicationRecord
@@ -30,10 +30,12 @@ class CustomFilter < ApplicationRecord
 
   EXPIRATION_DURATIONS = [30.minutes, 1.hour, 6.hours, 12.hours, 1.day, 1.week].freeze
 
+  TITLE_LENGTH_LIMIT = 256
+
   include Expireable
   include Redisable
 
-  enum :action, { warn: 0, hide: 1 }, suffix: :action
+  enum :action, { warn: 0, hide: 1, blur: 2 }, suffix: :action, validate: true
 
   belongs_to :account
   has_many :keywords, class_name: 'CustomFilterKeyword', inverse_of: :custom_filter, dependent: :destroy
@@ -41,6 +43,7 @@ class CustomFilter < ApplicationRecord
   accepts_nested_attributes_for :keywords, reject_if: :all_blank, allow_destroy: true
 
   validates :title, :context, presence: true
+  validates :title, length: { maximum: TITLE_LENGTH_LIMIT }
   validate :context_must_be_valid
 
   normalizes :context, with: ->(context) { context.map(&:strip).filter_map(&:presence) }

@@ -5,6 +5,7 @@ class ActivityPub::Activity
   include Redisable
   include Lockable
 
+  MAX_JSON_SIZE = 1.megabyte
   SUPPORTED_TYPES = %w(Note Question).freeze
   CONVERTED_TYPES = %w(Image Audio Video Article Page Event).freeze
 
@@ -20,15 +21,14 @@ class ActivityPub::Activity
   end
 
   class << self
-    def factory(json, account, **options)
-      @json = json
-      klass&.new(json, account, **options)
+    def factory(json, account, **)
+      klass_for(json)&.new(json, account, **)
     end
 
     private
 
-    def klass
-      case @json['type']
+    def klass_for(json)
+      case json['type']
       when 'Create'
         ActivityPub::Activity::Create
       when 'Announce'
@@ -57,6 +57,8 @@ class ActivityPub::Activity
         ActivityPub::Activity::Remove
       when 'Move'
         ActivityPub::Activity::Move
+      when 'QuoteRequest'
+        ActivityPub::Activity::QuoteRequest
       end
     end
   end
@@ -130,12 +132,7 @@ class ActivityPub::Activity
 
   def first_mentioned_local_account
     audience = (as_array(@json['to']) + as_array(@json['cc'])).map { |x| value_or_id(x) }.uniq
-    local_usernames = audience.select { |uri| ActivityPub::TagManager.instance.local_uri?(uri) }
-                              .map { |uri| ActivityPub::TagManager.instance.uri_to_local_id(uri, :username) }
-
-    return if local_usernames.empty?
-
-    Account.local.where(username: local_usernames).first
+    ActivityPub::TagManager.instance.uris_to_local_accounts(audience).first
   end
 
   def first_local_follower
